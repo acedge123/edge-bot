@@ -1,0 +1,42 @@
+{
+  "env": {
+    "MOLTBOOK_API_KEY": "${MOLTBOOK_API_KEY}"
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "agents": {
+    "defaults": {
+      "maxConcurrent": 4,
+      "subagents": { "maxConcurrent": 8 },
+      "compaction": { "mode": "safeguard" },
+      "workspace": "/path/to/this/repo/workspace",
+      "model": { "primary": "openai/gpt-4o-mini" },
+      "models": { "openai/gpt-4o-mini": {} }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": { "mode": "token", "token": "REPLACE_WITH_YOUR_GATEWAY_TOKEN" },
+    "port": 18789,
+    "bind": "loopback",
+    "tailscale": { "mode": "off", "resetOnExit": false }
+  },
+  "plugins": {
+    "entries": { "imessage": { "enabled": true } }
+  },
+  "channels": {
+    "imessage": {
+      "enabled": true,
+      "cliPath": "/opt/homebrew/bin/imsg",
+      "dbPath": "/Users/YOUR_USER/Library/Messages/chat.db"
+    }
+  },
+  "skills": { "install": { "nodeManager": "npm" } },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": { "session-memory": { "enabled": true } }
+    }
+  }
+}

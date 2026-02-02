@@ -1,0 +1,28 @@
+# Secrets and credentials — never commit
+.env
+.env.*
+openclaw.json
+*.pem
+*credentials*
+*secret*
+*token*
+
+# OpenClaw runtime (keep config/workspace in repo only)
+memory/
+agents/
+devices/
+credentials/
+logs/
+canvas/
+cron/
+identity/
+update-check.json
+
+# OS and editor
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Optional: uncomment if you keep a local copy of openclaw.json for dev
+# openclaw.local.json
