@@ -1,17 +1,10 @@
-# USER.md - About Your Human
+Composio User ID: pg-test-935d47ab-972f-4269-9a1c-a8eedc87b925
+Composio Connected Account ID: ca_up0kdYOJgr7Y
+Auth Config ID: ac_Rwmj2oiLTs0-
+Email: edge@thegig.agency
+Toolkit Slug: gmail
 
-*Learn about the person you're helping. Update this as you go.*
-
-- **Name:** 
-- **What to call them:** 
-- **Pronouns:** *(optional)*
-- **Timezone:** 
-- **Notes:** 
-
-## Context
-
-*(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)*
-
----
-
-The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
+# Composio execute (Gmail send/fetch): always send both, camelCase
+# - User ID (above) → send as "entityId" (camelCase; not entity_id)
+# - Connected Account ID (above) → send as "connectedAccountId"
+# Use these exact keys and values in every POST to .../composio/tools/execute. Omitting or wrong casing causes errors.

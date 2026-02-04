@@ -34,6 +34,9 @@
   },
   "skills": { "install": { "nodeManager": "npm" } },
   "hooks": {
+    "enabled": true,
+    "token": "REPLACE_WITH_YOUR_HOOK_TOKEN",
+    "path": "/hooks",
     "internal": {
       "enabled": true,
       "entries": { "session-memory": { "enabled": true } }

@@ -39,13 +39,22 @@ curl -s -H "Authorization: Bearer $AGENT_EDGE_KEY" "https://nljlsqgldgmxlbylqazg
 | List toolkits | GET | `/composio/toolkits?search=<optional>` |
 | List tools | GET | `/composio/tools?toolkit_slug=<optional>` |
 | Tool details | GET | `/composio/tools/<slug>` |
-| Execute tool | POST | `/composio/tools/execute` — JSON: toolSlug, input |
+| Execute tool | POST | `/composio/tools/execute` — JSON: toolSlug, entityId, connectedAccountId, arguments (all required for Gmail) |
+| Receive triggers (webhook) | POST | `/composio/webhook` — no auth; Composio calls this for new email etc. |
 
 Full reference: `sunafusion-agent-shell/docs/AGENT_VAULT_API.md`.
+
+**Gmail listener (already set up).** When the user asks to "set up a listener for Gmail" or "listen to Gmail": (1) The listener is already configured: Composio sends new-email events to the Agent Vault webhook, which stores them in `agent_learnings` with `category: composio_trigger`. (2) You can use it in two ways: **Right now** — search recent triggers: GET `.../learnings/search?q=composio_trigger+gmail&limit=20` (same base URL and Bearer $AGENT_EDGE_KEY). **Real-time** — a long-lived process must subscribe to Supabase Realtime (see next paragraph). Tell the user the listener is already set up; offer to search recent Gmail triggers or to run the Realtime subscription script. Do not say you cannot set up or use a Gmail listener.
+
+**Receive email triggers (webhook):** Composio webhook URL: `https://nljlsqgldgmxlbylqazg.supabase.co/functions/v1/agent-vault/composio/webhook` (Composio Dashboard → Event & Trigger Settings). Incoming events stored as learnings with `category: composio_trigger`. Search: GET `.../learnings/search?q=composio_trigger+gmail`. See full API doc for payload format.
+
+**Real-time updates (consume script):** To process push notifications (e.g. new Gmail triggers) automatically, run the **consume** script. From the workspace directory, with SUPABASE_URL and SUPABASE_ANON_KEY in env (e.g. from `~/.openclaw/.env`): `npm run consume`. This runs `scripts/subscribe-gmail-triggers.mjs`, which subscribes to Supabase Realtime on `public.agent_learnings`, event `INSERT`, filter `category=eq.composio_trigger`. The consume script is defined in `workspace/package.json`. Full details: `sunafusion-agent-shell/docs/AGENT_VAULT_API.md` → "Realtime Subscriptions".
 
 ---
 
 ## Using Gmail (or other apps) via Composio proxy
+
+You have access to this file (TOOLS.md) and USER.md. Use them. Do not say you cannot access skill files or Gmail docs — the values and body shape are here. To send email you must **run** the request: call your **Exec** (or shell) tool with the curl command below. Do **not** only show the curl in a code block in your reply — that does not send the email. The user cannot run it from the TUI; you must execute it yourself.
 
 Agent Vault proxies to Composio; the Composio API key stays in Supabase. Edge-bot only calls Agent Vault with AGENT_EDGE_KEY.
 
@@ -53,7 +62,38 @@ Agent Vault proxies to Composio; the Composio API key stays in Supabase. Edge-bo
 ```
 https://nljlsqgldgmxlbylqazg.supabase.co/functions/v1/agent-vault/composio/tools/execute
 ```
-Method: POST. Headers: `Authorization: Bearer $AGENT_EDGE_KEY`, `Content-Type: application/json`. Body: `{"toolSlug":"GMAIL_SEND_EMAIL","input":{"to":"...","subject":"...","body":"..."}}`.
+Method: POST. Headers: `Authorization: Bearer $AGENT_EDGE_KEY`, `Content-Type: application/json`.
+
+**GMAIL_SEND_EMAIL — required body shape.** You must include **entityId** (User ID) and **connectedAccountId** every time. User ID = Composio User ID in USER.md. The API expects **camelCase** `entityId` (not snake_case `entity_id`). Do not rename the key or the request will fail. Do not omit entityId. Use **arguments.recipient_email** (not `to`), **arguments.subject**, **arguments.body** — not `input`.
+
+**Copy-paste body (replace only recipient_email, subject, body):**
+```json
+{
+  "toolSlug": "GMAIL_SEND_EMAIL",
+  "entityId": "pg-test-935d47ab-972f-4269-9a1c-a8eedc87b925",
+  "connectedAccountId": "ca_up0kdYOJgr7Y",
+  "arguments": {
+    "recipient_email": "someone@example.com",
+    "subject": "Hello",
+    "body": "Email content"
+  }
+}
+```
+(entityId = User ID from USER.md. Key name must stay "entityId"; value is Composio User ID.)
+
+**To send email: invoke Exec with this command.** The first part loads AGENT_EDGE_KEY from ~/.openclaw/.env (Exec often does not have it). Replace RECIPIENT, SUBJECT, BODY in the JSON. Do not paste into your reply — run it via Exec.
+```
+. ~/.openclaw/.env 2>/dev/null || true; curl -s -X POST "https://nljlsqgldgmxlbylqazg.supabase.co/functions/v1/agent-vault/composio/tools/execute" -H "Authorization: Bearer $AGENT_EDGE_KEY" -H "Content-Type: application/json" -d '{"toolSlug":"GMAIL_SEND_EMAIL","entityId":"pg-test-935d47ab-972f-4269-9a1c-a8eedc87b925","connectedAccountId":"ca_up0kdYOJgr7Y","arguments":{"recipient_email":"RECIPIENT","subject":"SUBJECT","body":"BODY"}}'
+```
+Replace RECIPIENT, SUBJECT, BODY. If body has quotes, escape them or use a single-line body. After Exec runs, report the raw response (success or error). If you get "Entity ID" or 401: the token was likely empty — ensure the command starts with `. ~/.openclaw/.env` or `export $(grep -v '^#' ~/.openclaw/.env | xargs)` so AGENT_EDGE_KEY is set.
+
+**Gmail tool slugs (use these exactly — wrong slugs return 404):**
+| Action | Correct toolSlug | Wrong (do not use) |
+|--------|------------------|---------------------|
+| Send email | `GMAIL_SEND_EMAIL` | — |
+| Check / fetch emails | `GMAIL_FETCH_EMAILS` | `GMAIL_LIST_MESSAGES` (not found) |
+
+**Check or fetch Gmail:** Use **only** `GMAIL_FETCH_EMAILS`. Do **not** use `GMAIL_LIST_MESSAGES` — it does not exist and returns "Tool not found" (404). Use the **same** User ID (as entityId) and connectedAccountId as for send, or the call can return "unauthorized". Example: `{"toolSlug":"GMAIL_FETCH_EMAILS","entityId":"pg-test-935d47ab-972f-4269-9a1c-a8eedc87b925","connectedAccountId":"ca_up0kdYOJgr7Y","arguments":{"query":"in:inbox","max_results":10}}`. **Always include entityId (User ID) and connectedAccountId for every Composio execute** (send, fetch, draft).
 
 **1. One-time (operator):** Connect Gmail (or other app) in the Composio dashboard/app. After that, Composio holds the OAuth; edge-bot does not handle OAuth.
 
@@ -62,7 +102,7 @@ Method: POST. Headers: `Authorization: Bearer $AGENT_EDGE_KEY`, `Content-Type: a
 **3. Execute:** POST to the **exact** URL (base + path). Path must be appended to the **agent-vault** base:
 - Correct: `https://nljlsqgldgmxlbylqazg.supabase.co/functions/v1/agent-vault/composio/tools/execute`
 - Wrong: `.../functions/v1/composio/tools/execute` (missing `agent-vault` → Supabase returns "Requested function was not found").
-Body: `{"toolSlug":"GMAIL_SEND_EMAIL","input":{...}}`. Use AGENT_VAULT_URL or the default base.
+Body: include `entityId` (User ID from USER.md) and connectedAccountId; e.g. `{"toolSlug":"GMAIL_SEND_EMAIL","entityId":"pg-test-935d47ab-972f-4269-9a1c-a8eedc87b925","connectedAccountId":"ca_up0kdYOJgr7Y","arguments":{...}}`. Use AGENT_VAULT_URL or the default base.
 
 **"Requested function was not found":** That error is from Supabase. The first path segment after `/functions/v1/` must be `agent-vault`; do not omit it.
 
