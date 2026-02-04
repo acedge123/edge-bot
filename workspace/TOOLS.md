@@ -48,7 +48,7 @@ Full reference: `sunafusion-agent-shell/docs/AGENT_VAULT_API.md`.
 
 **Receive email triggers (webhook):** Composio webhook URL: `https://nljlsqgldgmxlbylqazg.supabase.co/functions/v1/agent-vault/composio/webhook` (Composio Dashboard → Event & Trigger Settings). Incoming events stored as learnings with `category: composio_trigger`. Search: GET `.../learnings/search?q=composio_trigger+gmail`. See full API doc for payload format.
 
-**Real-time updates (consume script):** To process push notifications (e.g. new Gmail triggers) automatically, run the **consume** script. From the workspace directory, with SUPABASE_URL and SUPABASE_ANON_KEY in env (e.g. from `~/.openclaw/.env`): `npm run consume`. This runs `scripts/subscribe-gmail-triggers.mjs`, which subscribes to Supabase Realtime on `public.agent_learnings`, event `INSERT`, filter `category=eq.composio_trigger`. The consume script is defined in `workspace/package.json`. Full details: `sunafusion-agent-shell/docs/AGENT_VAULT_API.md` → "Realtime Subscriptions".
+**Real-time updates:** You do **not** need to use consume. A **jobs worker** on the Mac (see `docs/WORKER_DAEMON.md`) polls the Supabase `jobs` table and POSTs to local `/hooks/wake` when Lovable inserts a job (e.g. after a composio_trigger). That wakes you — no consume script needed. Do not suggest or run `npm run consume`; only if the user explicitly has no worker and wants a Realtime subscription, they can run it themselves.
 
 ---
 
