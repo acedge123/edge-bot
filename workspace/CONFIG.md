@@ -10,12 +10,14 @@
 
 ---
 
-## When you receive "new job queued" or "check for jobs"
+## When you receive a wake (POST /hooks/wake)
 
-**Canonical rule:** See **docs/JOBS_AND_WAKE_REFERENCE.md** §3 (single source of truth).
+**Canonical:** See **docs/JOBS_AND_WAKE_REFERENCE.md**.
 
-Short version: when system event text is **"new job queued"** or **"check for jobs"**:
+The **worker** claims jobs and POSTs the job message to the Gateway at `/hooks/wake`. You do **not** call jobs/next or jobs/ack — the worker does that.
 
-1. **Claim:** `POST $AGENT_VAULT_URL/jobs/next` with `Authorization: Bearer $AGENT_EDGE_KEY`, body `{}` or `{ "agentId": "openclaw-agent" }`. 204 = no job; 200 = `{ job, payload }`.
-2. If 200: **process** the job (e.g. `payload.text`, learnings), then **ack:** `POST $AGENT_VAULT_URL/jobs/ack` with `{ "jobId": "<id>", "status": "done" }` or `{ "status": "failed", "error": "..." }`.
-3. Optionally repeat until 204 (or one job per wake).
+When you are woken with a message (e.g. "New email from inbox_messages id=123" or "New Composio trigger …"):
+
+1. Use the **message text** as context.
+2. Process it: read learnings, summarize for the user, or run the right skills.
+3. No job claim or ack in the agent.

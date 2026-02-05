@@ -1,11 +1,5 @@
-# HEARTBEAT.md
+# Heartbeat checklist
 
-# Keep this file empty (or with only comments) to skip heartbeat API calls.
-
-# Add tasks below when you want the agent to check something periodically.
-
-# --- When woken by inbound webhook (Composio trigger) ---
-# If the wake text says something like "New Composio trigger received" or "new email":
-# 1. Fetch the latest composio_trigger learnings: GET .../learnings/search?q=composio_trigger+gmail&limit=5 (base URL and Bearer $AGENT_EDGE_KEY from TOOLS.md).
-# 2. Summarize the new trigger(s) for the user (e.g. "New email from X: subject Y").
-# 3. If appropriate, act (e.g. reply, archive, or notify). Otherwise reply HEARTBEAT_OK after summarizing.
+- When you are **woken** (e.g. via `POST /hooks/wake`), the **message text** is your context. The worker already claimed the job and will mark it done; you do **not** call jobs/next or jobs/ack.
+- **Process the message:** e.g. if the text says "New email from inbox_messages id=123" or "New Composio trigger …", read the relevant learnings or data and summarize for the user (or run the appropriate skills).
+- If nothing else needs attention, reply `HEARTBEAT_OK`.

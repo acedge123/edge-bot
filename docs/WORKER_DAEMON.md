@@ -1,20 +1,61 @@
 # Running the jobs worker (daemon)
 
-**Full architecture, contract, and OpenClaw rule:** see **docs/JOBS_AND_WAKE_REFERENCE.md**. This file only covers how to run the worker as a daemon.
+**Full architecture and contract:** see **docs/JOBS_AND_WAKE_REFERENCE.md**. This file only covers how to run the worker and the Gateway.
+
+---
+
+## What runs on the Mac
+
+**1. OpenClaw Gateway (the brain) — always on**
+
+```bash
+openclaw gateway --port 18789
+```
+
+This is the always-on process: channels, sessions, agent, hooks, memory, skills. It exposes `POST http://127.0.0.1:18789/hooks/wake`. Do **not** run `openclaw agent` in a loop from bash.
+
+**2. Jobs worker (the pulse) — daemon**
+
+The worker script: **claim one job** (agent-vault `/jobs/next`) → **POST** it to the Gateway at `/hooks/wake` → **ack** the job (`/jobs/ack`). Repeat. Polling every ~2s when idle.
+
+**Run from the repo root** (paths in this doc are relative to the OpenClaw_Github repo):
+
+```bash
+cd /Users/edgetbot/OpenClaw_Github
+node workspace/scripts/jobs-worker.mjs
+```
+
+Or use the full path: `node /Users/edgetbot/OpenClaw_Github/workspace/scripts/jobs-worker.mjs`
 
 ---
 
 ## What the worker does (summary)
 
-- Polls Supabase for any `jobs` row with `status = 'queued'`.
-- If any: runs `openclaw system event --text "new job queued" --mode now` (CLI poke). Cooldown 30s.
-- Does **not** claim or complete jobs; OpenClaw pulls via agent-vault `/jobs/next` and `/jobs/ack`.
+- Calls agent-vault `POST /jobs/next` to **claim** one job.
+- **POSTs** the job payload to `http://127.0.0.1:18789/hooks/wake` with `{ "text": "<message>", "mode": "now" }`.
+- Calls agent-vault `POST /jobs/ack` to mark the job **done** (or **failed** if the wake POST failed).
+- No CLI poke. No OpenClaw pull — the worker pushes the job to the Gateway.
+
+---
+
+## Env (worker)
+
+In `~/.openclaw/.env` (worker loads it):
+
+| Variable | Purpose |
+|----------|---------|
+| `AGENT_VAULT_URL` | Agent-vault Edge Function base URL |
+| `AGENT_EDGE_KEY` | Bearer token for /jobs/next and /jobs/ack |
+| `GATEWAY_HTTP_URL` | Optional; default `http://127.0.0.1:18789` |
+| `JOBS_POLL_INTERVAL_MS` | Optional; default 2000 |
+
+See **docs/JOBS_AND_WAKE_REFERENCE.md** §5.
 
 ---
 
 ## Option A: launchd (Mac)
 
-1. Plist (replace paths), e.g. `~/Library/LaunchAgents/com.openclaw.jobsworker.plist`:
+1. Plist, e.g. `~/Library/LaunchAgents/com.openclaw.jobsworker.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -51,6 +92,8 @@
 2. Worker loads `~/.openclaw/.env` itself.
 3. `launchctl load ~/Library/LaunchAgents/com.openclaw.jobsworker.plist` / `unload` to stop.
 
+Run the **Gateway** separately (e.g. in a terminal or its own launchd plist).
+
 ---
 
 ## Option B: pm2
@@ -63,8 +106,4 @@ pm2 start scripts/jobs-worker.mjs --name openclaw-worker
 pm2 save && pm2 startup
 ```
 
----
-
-## Env (see reference)
-
-Required: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (or service role). Optional: `OPENCLAW_CLI_PATH`, `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `JOBS_POLL_INTERVAL_MS`, `JOBS_WAKE_COOLDOWN_MS`. All in `~/.openclaw/.env`. See **docs/JOBS_AND_WAKE_REFERENCE.md** §2.
+Run the **Gateway** separately (e.g. `pm2 start "openclaw gateway --port 18789" --name openclaw-gateway` or in another process).

@@ -18,6 +18,11 @@ cron/
 identity/
 update-check.json
 
+# Dependencies and large external trees
+node_modules/
+openclaw-skills/
+sunafusion-agent-shell/
+
 # OS and editor
 .DS_Store
 *.swp

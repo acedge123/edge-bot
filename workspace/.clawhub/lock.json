@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "skills": {
+    "github": {
+      "version": "1.0.0",
+      "installedAt": 1770104973477
+    },
+    "slack": {
+      "version": "1.0.0",
+      "installedAt": 1770104982198
+    },
+    "brave-search": {
+      "version": "1.0.1",
+      "installedAt": 1770104994724
+    },
+    "agent-browser": {
+      "version": "0.2.0",
+      "installedAt": 1770105284902
+    }
+  }
+}
