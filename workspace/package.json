@@ -1,11 +1,6 @@
 {
-  "scripts": {
-    "consume": "node scripts/subscribe-gmail-triggers.mjs",
-    "worker": "node scripts/jobs-worker.mjs"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.94.0",
-    "config-guardian": "^1.2.3",
+  "scripts":{"worker":"node scripts/jobs-worker.mjs"},"dependencies": {
+    "@supabase/supabase-js":"^2.94.0","config-guardian": "^1.2.3",
     "context-manager": "^0.2.0",
     "jq": "^1.7.2",
     "process-watch": "^0.3.1",
