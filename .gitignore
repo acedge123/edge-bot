@@ -51,3 +51,6 @@ Thumbs.db
 
 # Optional: uncomment if you keep a local copy of openclaw.json for dev
 # openclaw.local.json
+
+# Local clones for audits / scratch (do not commit)
+external/
