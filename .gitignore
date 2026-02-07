@@ -9,6 +9,7 @@ openclaw.json
 
 # OpenClaw runtime (keep config/workspace in repo only)
 memory/
+.firecrawl/
 agents/
 devices/
 credentials/
@@ -18,10 +19,29 @@ cron/
 identity/
 update-check.json
 
+# Local assistant identity/memory files (do not commit)
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+MEMORY.md
+SOUL.md
+TOOLS.md
+USER.md
+
+# Local editor/tooling state
+.clawhub/
+.cursor/
+
 # Dependencies and large external trees
 node_modules/
+.venv/
+venv/
 openclaw-skills/
 sunafusion-agent-shell/
+
+# Vendored tools (keep local unless explicitly submoduled)
+vendor/agent-squad/
 
 # OS and editor
 .DS_Store
