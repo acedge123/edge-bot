@@ -108,7 +108,8 @@ async function claimNextJob() {
 
 /** Ack job (done or failed). */
 async function ackJob(jobId, status, errorMsg = null) {
-  const body = { jobId, status };
+  // Be liberal in what we send: some older agent-vault deployments expect job_id.
+  const body = { jobId, job_id: jobId, status };
   if (errorMsg) body.error = errorMsg;
   const res = await fetch(`${AGENT_VAULT_URL}/jobs/ack`, {
     method: 'POST',
