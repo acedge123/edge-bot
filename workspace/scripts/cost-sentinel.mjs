@@ -9,12 +9,37 @@
  *   COMPOSIO_API_KEY (optional; v1 stub)
  */
 
+import { readFileSync, existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
 const args = new Set(process.argv.slice(2));
 const mode = (() => {
   const m = process.argv.find((a) => a.startsWith('--mode='))?.slice('--mode='.length);
   return m || 'daily';
 })();
 const dryRun = args.has('--dry-run');
+
+function loadEnvFileIfPresent() {
+  const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
+  if (!existsSync(envPath)) return;
+  try {
+    const raw = readFileSync(envPath, 'utf8');
+    for (const line of raw.split('\n')) {
+      const trimmed = line.replace(/#.*/, '').trim();
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+      if (key && process.env[key] === undefined) process.env[key] = val;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Ensure cron runs (which may not inherit ~/.openclaw/.env) still see secrets.
+loadEnvFileIfPresent();
 
 function isoDate(d) {
   const yyyy = d.getFullYear();
