@@ -135,22 +135,15 @@ function wakeTextFromPayload(job, payload) {
   const source = (payload && typeof payload.source === 'string') ? payload.source.trim() : '';
 
   if (source === 'chat_ui') {
+    // UI payload should include these IDs; fall back to job.id as job_id.
+    const jobId = (payload && (payload.job_id || payload.jobId)) ? String(payload.job_id || payload.jobId) : (job?.id || '');
     const userId = (payload && (payload.user_id || payload.userId)) ? String(payload.user_id || payload.userId) : '';
-    const qLearningId = (payload && (payload.learning_id || payload.learningId)) ? String(payload.learning_id || payload.learningId) : '';
+    const learningId = (payload && (payload.learning_id || payload.learningId)) ? String(payload.learning_id || payload.learningId) : '';
 
-    // Keep this header compact + machine-parsable.
-    const header = `CHAT_UI job_id=${job?.id || ''} user_id=${userId} query_learning_id=${qLearningId}`.trim();
+    // One-line header, easy to parse.
+    const header = `[chat_ui] job_id=${jobId} user_id=${userId} learning_id=${learningId}`.trim();
 
-    // Give the agent explicit instructions for durable writeback.
-    // (Agent should respond normally in the chat, then mirror the response to Agent Vault.)
-    return [
-      header,
-      '',
-      text ? `User message: ${text}` : 'User message: (empty)',
-      '',
-      'After replying to the user, also persist your reply to Agent Vault as a chat_response learning by running a curl command that uses env vars AGENT_VAULT_URL and AGENT_EDGE_KEY.',
-      'Include metadata: job_id, user_id, query_learning_id, source="openclaw".',
-    ].join('\n');
+    return [header, text].filter(Boolean).join('\n');
   }
 
   if (text) return text;
