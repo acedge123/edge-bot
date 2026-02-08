@@ -17,6 +17,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { execFileSync } from 'child_process';
 
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -51,6 +52,7 @@ const AGENT_EDGE_KEY = (process.env.AGENT_EDGE_KEY || process.env.SUPABASE_EDGE_
 const GATEWAY_HTTP_URL = (process.env.GATEWAY_HTTP_URL || 'http://127.0.0.1:18789').replace(/\/+$/, '');
 const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
 const POLL_MS = Math.max(1000, parseInt(process.env.JOBS_POLL_INTERVAL_MS || '2000', 10));
+const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 
 if (!AGENT_VAULT_URL || !AGENT_EDGE_KEY) {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -176,6 +178,94 @@ async function postWake(text) {
   return res;
 }
 
+function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
+  const out = execFileSync(OPENCLAW_BIN, [
+    'gateway',
+    'call',
+    method,
+    '--params',
+    JSON.stringify(params),
+    '--timeout',
+    String(timeoutMs),
+    '--json',
+  ], { encoding: 'utf8' });
+  return JSON.parse(out);
+}
+
+async function postChatResponseToVault({ jobId, userId, learningId, answerText }) {
+  const url = `${AGENT_VAULT_URL}/learnings`;
+  const payload = {
+    learning: answerText,
+    category: 'chat_response',
+    kind: 'chat_response',
+    visibility: 'private',
+    source: 'openclaw',
+    tags: ['chat_ui'],
+    confidence: 1.0,
+    metadata: {
+      job_id: jobId,
+      user_id: userId,
+      query_learning_id: learningId,
+      source: 'openclaw',
+    },
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`vault /learnings ${res.status}: ${t.slice(0, 200)}`);
+  }
+}
+
+async function handleChatUiJob(job, payload) {
+  const userId = String(payload.user_id || payload.userId || '').trim();
+  const learningId = String(payload.learning_id || payload.learningId || '').trim();
+  const message = String(payload.text || '').trim();
+  const jobId = String(payload.job_id || payload.jobId || job.id || '').trim();
+
+  if (!userId || !learningId || !message || !jobId) {
+    throw new Error('chat_ui payload missing one of: job_id, user_id, learning_id, text');
+  }
+
+  // Use a per-user sessionKey so chats don’t collide.
+  const sessionKey = `agent:main:chat_ui:${userId}`;
+  const idempotencyKey = jobId;
+
+  // Fire the run (don’t deliver to iMessage; we’ll write back to Supabase).
+  gatewayCall('chat.send', {
+    sessionKey,
+    message,
+    deliver: false,
+    idempotencyKey,
+    timeoutMs: 60000,
+  }, { timeoutMs: 70000 });
+
+  // Poll for the newest assistant message.
+  const deadline = Date.now() + 70000;
+  let lastText = '';
+  while (Date.now() < deadline) {
+    const hist = gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10000 });
+    const msgs = hist?.messages || [];
+    const last = [...msgs].reverse().find((m) => m.role === 'assistant' && Array.isArray(m.content));
+    const text = last?.content?.map((c) => c?.text).filter(Boolean).join('')?.trim() || '';
+    if (text && text !== lastText) {
+      // Heuristic: accept first assistant message after send.
+      await postChatResponseToVault({ jobId, userId, learningId, answerText: text });
+      return;
+    }
+    lastText = text;
+    await new Promise((r) => setTimeout(r, 750));
+  }
+
+  throw new Error('chat_ui timeout waiting for assistant response');
+}
+
 async function runLoop() {
   while (true) {
     try {
@@ -185,14 +275,27 @@ async function runLoop() {
         continue;
       }
       const { job, payload } = claimed;
-      const text = wakeTextFromPayload(job, payload);
-      try {
-        await postWake(text);
-        await ackJob(job.id, 'done');
-        console.log('[worker] job', job.id, '→ /hooks/wake → acked');
-      } catch (err) {
-        console.error('[worker] wake or ack error:', err.message);
-        await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
+
+      // Special case: chat UI jobs want request/response semantics.
+      if (payload && typeof payload === 'object' && String(payload.source || '') === 'chat_ui') {
+        try {
+          await handleChatUiJob(job, payload);
+          await ackJob(job.id, 'done');
+          console.log('[worker] chat_ui job', job.id, '→ gateway call → learnings → acked');
+        } catch (err) {
+          console.error('[worker] chat_ui error:', err.message);
+          await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
+        }
+      } else {
+        const text = wakeTextFromPayload(job, payload);
+        try {
+          await postWake(text);
+          await ackJob(job.id, 'done');
+          console.log('[worker] job', job.id, '→ /hooks/wake → acked');
+        } catch (err) {
+          console.error('[worker] wake or ack error:', err.message);
+          await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
+        }
       }
       // No cooldown: go back to poll immediately (or use a small 100ms if you want)
       await new Promise((r) => setTimeout(r, 100));
