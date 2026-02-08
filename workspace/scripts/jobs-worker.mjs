@@ -5,7 +5,7 @@
  * openclaw agent from bash — run `openclaw gateway --port 18789` separately.
  *
  * Env (e.g. from ~/.openclaw/.env):
- *   AGENT_VAULT_URL   - Edge function base (e.g. https://<project>.supabase.co/functions/v1/agent-vault)
+ *   AGENT_VAULT_URL   - Edge functions base (e.g. https://<project>.supabase.co/functions/v1); worker appends /agent-vault/...
  *   AGENT_EDGE_KEY    - Bearer token for /jobs/next and /jobs/ack
  *   GATEWAY_HTTP_URL  - Gateway base (default http://127.0.0.1:18789) for POST /hooks/wake
  *   OPENCLAW_HOOK_TOKEN - Required. Same as hooks.token in OpenClaw config (Authorization: Bearer)
@@ -36,7 +36,17 @@ function loadOpenClawEnv() {
 loadOpenClawEnv();
 
 // Accept AGENT_VAULT_URL / AGENT_EDGE_KEY or CONFIG-style SUPABASE_EDGE_SECRETS_*
-const AGENT_VAULT_URL = (process.env.AGENT_VAULT_URL || process.env.SUPABASE_EDGE_SECRETS_URL || '').replace(/\/+$/, '');
+//
+// AGENT_VAULT_URL can be either:
+//  - Edge functions root: https://<project>.supabase.co/functions/v1
+//  - Function base URL:    https://<project>.supabase.co/functions/v1/agent-vault
+//
+// We normalize to the function base URL so callers can use either form safely.
+const AGENT_VAULT_URL_RAW = (process.env.AGENT_VAULT_URL || process.env.SUPABASE_EDGE_SECRETS_URL || '').replace(/\/+$/, '');
+const AGENT_VAULT_URL = AGENT_VAULT_URL_RAW
+  ? (AGENT_VAULT_URL_RAW.endsWith('/agent-vault') ? AGENT_VAULT_URL_RAW : `${AGENT_VAULT_URL_RAW}/agent-vault`)
+  : '';
+
 const AGENT_EDGE_KEY = (process.env.AGENT_EDGE_KEY || process.env.SUPABASE_EDGE_SECRETS_AUTH || '').trim();
 const GATEWAY_HTTP_URL = (process.env.GATEWAY_HTTP_URL || 'http://127.0.0.1:18789').replace(/\/+$/, '');
 const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
