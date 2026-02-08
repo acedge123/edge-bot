@@ -162,3 +162,25 @@ All require Bearer auth. Agent-vault forwards to `https://backend.composio.dev/a
 - **Plan (jobs integration):** `sunafusion-agent-shell/.lovable/plan.md`
 
 OpenClaw’s use of the jobs API is described in **docs/JOBS_AND_WAKE_REFERENCE.md** and **workspace/HEARTBEAT.md**.
+
+---
+
+## 8. Deploying agent-vault (Supabase Edge Function)
+
+If the **deployed** agent-vault returns 404 for `/jobs/next` or `/jobs/ack` (while the repo code has those routes), the live function is out of date. Redeploy from the SunaFusion repo:
+
+```bash
+cd sunafusion-agent-shell
+supabase functions deploy agent-vault
+```
+
+**Before deploying:**
+
+1. **Supabase CLI** linked to your project (e.g. `supabase link` if not already).
+2. **Secrets** set for the function (Dashboard → Edge Functions → agent-vault → Secrets, or CLI):
+   - `SUPABASE_URL` — project URL (e.g. `https://<project-ref>.supabase.co`)
+   - `SUPABASE_SERVICE_ROLE_KEY` — service role key
+   - `AGENT_EDGE_KEY` — same value as in `~/.openclaw/.env` (Bearer secret for jobs/learnings)
+   - `COMPOSIO_API_KEY` — optional, for Composio webhook/proxy
+
+**After deploy:** Worker can call `POST $AGENT_VAULT_URL/agent-vault/jobs/next` (with base = `.../functions/v1`); expect **204** (no job) or **200** (job claimed).
