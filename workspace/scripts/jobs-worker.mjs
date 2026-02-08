@@ -125,9 +125,36 @@ async function ackJob(jobId, status, errorMsg = null) {
   }
 }
 
-/** Build wake text from job payload. */
-function wakeTextFromPayload(payload) {
-  if (payload && typeof payload.text === 'string' && payload.text.trim()) return payload.text.trim();
+/** Build wake text from job payload.
+ *
+ * For chat-ui jobs, we embed stable metadata so the agent can post a writeback
+ * to Agent Vault (/learnings) after responding.
+ */
+function wakeTextFromPayload(job, payload) {
+  const text = (payload && typeof payload.text === 'string') ? payload.text.trim() : '';
+  const source = (payload && typeof payload.source === 'string') ? payload.source.trim() : '';
+
+  if (source === 'chat_ui') {
+    const userId = (payload && (payload.user_id || payload.userId)) ? String(payload.user_id || payload.userId) : '';
+    const qLearningId = (payload && (payload.learning_id || payload.learningId)) ? String(payload.learning_id || payload.learningId) : '';
+
+    // Keep this header compact + machine-parsable.
+    const header = `CHAT_UI job_id=${job?.id || ''} user_id=${userId} query_learning_id=${qLearningId}`.trim();
+
+    // Give the agent explicit instructions for durable writeback.
+    // (Agent should respond normally in the chat, then mirror the response to Agent Vault.)
+    return [
+      header,
+      '',
+      text ? `User message: ${text}` : 'User message: (empty)',
+      '',
+      'After replying to the user, also persist your reply to Agent Vault as a chat_response learning by running a curl command that uses env vars AGENT_VAULT_URL and AGENT_EDGE_KEY.',
+      'Include metadata: job_id, user_id, query_learning_id, source="openclaw".',
+    ].join('\n');
+  }
+
+  if (text) return text;
+
   if (payload && typeof payload === 'object') {
     const parts = [];
     if (payload.trigger_name) parts.push(`Trigger: ${payload.trigger_name}`);
@@ -165,7 +192,7 @@ async function runLoop() {
         continue;
       }
       const { job, payload } = claimed;
-      const text = wakeTextFromPayload(payload);
+      const text = wakeTextFromPayload(job, payload);
       try {
         await postWake(text);
         await ackJob(job.id, 'done');
