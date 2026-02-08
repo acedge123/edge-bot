@@ -67,9 +67,9 @@ async function fetchJson(url, headers) {
 
 async function openaiCostsSummary({ startUnixSec, endUnixSec }) {
   // New-style org usage/costs endpoints require a key with api.usage.read scope.
-  const key = process.env.OPENAI_ADMIN_KEY || process.env.OPENAI_API_KEY;
+  const key = process.env.OPENAI_ADMIN_API_KEY || process.env.OPENAI_ADMIN_KEY || process.env.OPENAI_API_KEY;
   if (!key) {
-    return { ok: false, summary: 'OpenAI: missing OPENAI_ADMIN_KEY (or OPENAI_API_KEY with api.usage.read)' };
+    return { ok: false, summary: 'OpenAI: missing OPENAI_ADMIN_API_KEY (or OPENAI_ADMIN_KEY / OPENAI_API_KEY with api.usage.read)' };
   }
 
   const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
