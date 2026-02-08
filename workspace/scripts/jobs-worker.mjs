@@ -237,29 +237,36 @@ async function handleChatUiJob(job, payload) {
   const sessionKey = `agent:main:chat_ui:${userId}`;
   const idempotencyKey = jobId;
 
+  // Snapshot baseline so we only accept a *new* assistant message.
+  const baseline = gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10000 });
+  const baselineMsgs = baseline?.messages || [];
+  const baselineLastTs = [...baselineMsgs].reverse().find((m) => m.role === 'assistant')?.timestamp || 0;
+
   // Fire the run (don’t deliver to iMessage; we’ll write back to Supabase).
   gatewayCall('chat.send', {
     sessionKey,
     message,
     deliver: false,
     idempotencyKey,
-    timeoutMs: 60000,
+    timeoutMs: 180000,
   }, { timeoutMs: 70000 });
 
-  // Poll for the newest assistant message.
-  const deadline = Date.now() + 70000;
-  let lastText = '';
+  // Poll for a *new* assistant message.
+  const deadline = Date.now() + 190000;
   while (Date.now() < deadline) {
     const hist = gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10000 });
     const msgs = hist?.messages || [];
-    const last = [...msgs].reverse().find((m) => m.role === 'assistant' && Array.isArray(m.content));
-    const text = last?.content?.map((c) => c?.text).filter(Boolean).join('')?.trim() || '';
-    if (text && text !== lastText) {
-      // Heuristic: accept first assistant message after send.
+
+    const lastNewAssistant = [...msgs]
+      .reverse()
+      .find((m) => m.role === 'assistant' && (m.timestamp || 0) > baselineLastTs && Array.isArray(m.content));
+
+    const text = lastNewAssistant?.content?.map((c) => c?.text).filter(Boolean).join('')?.trim() || '';
+    if (text) {
       await postChatResponseToVault({ jobId, userId, learningId, answerText: text });
       return;
     }
-    lastText = text;
+
     await new Promise((r) => setTimeout(r, 750));
   }
 
