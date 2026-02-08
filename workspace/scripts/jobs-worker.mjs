@@ -17,7 +17,10 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -178,8 +181,8 @@ async function postWake(text) {
   return res;
 }
 
-function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
-  const out = execFileSync(OPENCLAW_BIN, [
+async function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
+  const { stdout } = await execFileAsync(OPENCLAW_BIN, [
     'gateway',
     'call',
     method,
@@ -188,16 +191,16 @@ function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
     '--timeout',
     String(timeoutMs),
     '--json',
-  ], { encoding: 'utf8' });
-  return JSON.parse(out);
+  ], { timeout: timeoutMs + 5000, maxBuffer: 10 * 1024 * 1024 });
+  return JSON.parse(stdout);
 }
 
-async function postChatResponseToVault({ jobId, userId, learningId, answerText }) {
+async function postChatLearningToVault({ jobId, userId, learningId, text, kind }) {
   const url = `${AGENT_VAULT_URL}/learnings`;
   const payload = {
-    learning: answerText,
-    category: 'chat_response',
-    kind: 'chat_response',
+    learning: text,
+    category: kind,
+    kind,
     visibility: 'private',
     source: 'openclaw',
     tags: ['chat_ui'],
@@ -237,40 +240,117 @@ async function handleChatUiJob(job, payload) {
   const sessionKey = `agent:main:chat_ui:${userId}`;
   const idempotencyKey = jobId;
 
+  // Progress policy: only emit progress if it’s actually taking time.
+  const progressTimers = [];
+  const clearProgressTimers = () => {
+    for (const t of progressTimers) clearTimeout(t);
+    progressTimers.length = 0;
+  };
+
+  // T+15s: “this may take a while…”
+  progressTimers.push(setTimeout(() => {
+    postChatLearningToVault({
+      jobId,
+      userId,
+      learningId,
+      kind: 'chat_progress',
+      text: "Got it — working on it now. This may take a few minutes; I’ll update you when I have a complete answer.",
+    }).catch(() => {});
+  }, 15_000));
+
+  // T+90s: still running
+  progressTimers.push(setTimeout(() => {
+    postChatLearningToVault({
+      jobId,
+      userId,
+      learningId,
+      kind: 'chat_progress',
+      text: "Still on it — pulling sources and double-checking details.",
+    }).catch(() => {});
+  }, 90_000));
+
+  // Then every 3 minutes, lightly reassure.
+  const scheduleRepeatingProgress = () => {
+    const tick = () => {
+      postChatLearningToVault({
+        jobId,
+        userId,
+        learningId,
+        kind: 'chat_progress',
+        text: "Still working — I’ll post as soon as it’s ready.",
+      }).catch(() => {});
+      progressTimers.push(setTimeout(tick, 180_000));
+    };
+    progressTimers.push(setTimeout(tick, 180_000));
+  };
+  scheduleRepeatingProgress();
+
   // Snapshot baseline so we only accept a *new* assistant message.
-  const baseline = gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10000 });
+  const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
   const baselineMsgs = baseline?.messages || [];
   const baselineLastTs = [...baselineMsgs].reverse().find((m) => m.role === 'assistant')?.timestamp || 0;
 
   // Fire the run (don’t deliver to iMessage; we’ll write back to Supabase).
-  gatewayCall('chat.send', {
+  await gatewayCall('chat.send', {
     sessionKey,
     message,
     deliver: false,
     idempotencyKey,
-    timeoutMs: 180000,
-  }, { timeoutMs: 70000 });
+    timeoutMs: 15 * 60 * 1000,
+  }, { timeoutMs: 70_000 });
 
   // Poll for a *new* assistant message.
-  const deadline = Date.now() + 190000;
-  while (Date.now() < deadline) {
-    const hist = gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10000 });
-    const msgs = hist?.messages || [];
+  const deadline = Date.now() + (15 * 60 * 1000);
+  try {
+    while (Date.now() < deadline) {
+      const hist = await gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 });
+      const msgs = hist?.messages || [];
 
-    const lastNewAssistant = [...msgs]
-      .reverse()
-      .find((m) => m.role === 'assistant' && (m.timestamp || 0) > baselineLastTs && Array.isArray(m.content));
+      const lastNewAssistant = [...msgs]
+        .reverse()
+        .find((m) => m.role === 'assistant' && (m.timestamp || 0) > baselineLastTs && Array.isArray(m.content));
 
-    const text = lastNewAssistant?.content?.map((c) => c?.text).filter(Boolean).join('')?.trim() || '';
-    if (text) {
-      await postChatResponseToVault({ jobId, userId, learningId, answerText: text });
-      return;
+      const text = lastNewAssistant?.content?.map((c) => c?.text).filter(Boolean).join('')?.trim() || '';
+      if (text) {
+        clearProgressTimers();
+        await postChatLearningToVault({ jobId, userId, learningId, kind: 'chat_response', text });
+        return;
+      }
+
+      await new Promise((r) => setTimeout(r, 750));
     }
-
-    await new Promise((r) => setTimeout(r, 750));
+  } finally {
+    clearProgressTimers();
   }
 
   throw new Error('chat_ui timeout waiting for assistant response');
+}
+
+const chatUiQueue = [];
+let chatUiActive = false;
+
+function pumpChatUiQueue() {
+  if (chatUiActive) return;
+  const next = chatUiQueue.shift();
+  if (!next) return;
+
+  chatUiActive = true;
+  const { job, payload } = next;
+
+  // Run in background so the worker can keep polling/acking other jobs.
+  void (async () => {
+    try {
+      await handleChatUiJob(job, payload);
+      await ackJob(job.id, 'done');
+      console.log('[worker] chat_ui job', job.id, '→ gateway call → learnings → acked');
+    } catch (err) {
+      console.error('[worker] chat_ui error:', err.message);
+      await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
+    } finally {
+      chatUiActive = false;
+      pumpChatUiQueue();
+    }
+  })();
 }
 
 async function runLoop() {
@@ -285,26 +365,24 @@ async function runLoop() {
 
       // Special case: chat UI jobs want request/response semantics.
       if (payload && typeof payload === 'object' && String(payload.source || '') === 'chat_ui') {
-        try {
-          await handleChatUiJob(job, payload);
-          await ackJob(job.id, 'done');
-          console.log('[worker] chat_ui job', job.id, '→ gateway call → learnings → acked');
-        } catch (err) {
-          console.error('[worker] chat_ui error:', err.message);
-          await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
-        }
-      } else {
-        const text = wakeTextFromPayload(job, payload);
-        try {
-          await postWake(text);
-          await ackJob(job.id, 'done');
-          console.log('[worker] job', job.id, '→ /hooks/wake → acked');
-        } catch (err) {
-          console.error('[worker] wake or ack error:', err.message);
-          await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
-        }
+        chatUiQueue.push({ job, payload });
+        pumpChatUiQueue();
+        // Go back to polling immediately.
+        await new Promise((r) => setTimeout(r, 50));
+        continue;
       }
-      // No cooldown: go back to poll immediately (or use a small 100ms if you want)
+
+      const text = wakeTextFromPayload(job, payload);
+      try {
+        await postWake(text);
+        await ackJob(job.id, 'done');
+        console.log('[worker] job', job.id, '→ /hooks/wake → acked');
+      } catch (err) {
+        console.error('[worker] wake or ack error:', err.message);
+        await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
+      }
+
+      // No cooldown: go back to poll quickly.
       await new Promise((r) => setTimeout(r, 100));
     } catch (e) {
       console.error('[worker] error', e.message);
