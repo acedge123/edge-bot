@@ -88,8 +88,12 @@ async function openaiCostsSummary({ startUnixSec, endUnixSec }) {
       const results = Array.isArray(b?.results) ? b.results : [];
       for (const r of results) {
         const amt = r?.amount;
-        const v = typeof amt?.value === 'number' ? amt.value : (typeof r?.amount_usd === 'number' ? r.amount_usd : null);
-        if (typeof v === 'number') {
+        const vRaw =
+          (amt && (typeof amt.value === 'number' || typeof amt.value === 'string') ? amt.value : null) ??
+          (typeof r?.amount_usd === 'number' || typeof r?.amount_usd === 'string' ? r.amount_usd : null);
+
+        const v = typeof vRaw === 'string' ? Number.parseFloat(vRaw) : vRaw;
+        if (typeof v === 'number' && Number.isFinite(v)) {
           totalUsd += v;
           found = true;
         }
