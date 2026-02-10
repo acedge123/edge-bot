@@ -85,6 +85,7 @@ Paths are under the base URL; trailing slashes are normalized. All JSON response
 | Method + path | Query / body | Response |
 |----------------|--------------|----------|
 | **GET /learnings/search** | `?q=<query>&limit=<n>` (limit 1–50, default 10) | **200** `{ data: [...], count }`. RPC `search_agent_learnings`. |
+| **GET /learnings/get** | `?id=<uuid>` | **200** `{ data: <row \| null> }`. Single learning by id. |
 | **POST /learnings** | JSON body (see below) | **200** `{ data: { id, learning, category, source, tags, created_at } }`. Inserts into `agent_learnings`. |
 
 **POST /learnings body:** Supports two shapes.
