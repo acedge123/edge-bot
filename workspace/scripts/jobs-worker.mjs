@@ -382,8 +382,9 @@ async function runLoop() {
         await ackJob(job.id, 'failed', err.message).catch((e) => console.error('[worker] ack failed:', e.message));
       }
 
-      // No cooldown: go back to poll quickly.
-      await new Promise((r) => setTimeout(r, 100));
+      // Cooldown after wake to avoid burst token usage and throttling (default 3s).
+      const cooldownMs = Math.max(0, parseInt(process.env.JOBS_WAKE_COOLDOWN_MS || '3000', 10));
+      await new Promise((r) => setTimeout(r, cooldownMs));
     } catch (e) {
       console.error('[worker] error', e.message);
       await new Promise((r) => setTimeout(r, POLL_MS));
