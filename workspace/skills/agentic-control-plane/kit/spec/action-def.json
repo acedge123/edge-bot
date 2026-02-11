@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACP Action Definition",
+  "description": "Action definition schema — used in meta.actions and pack registration",
+  "type": "object",
+  "required": ["name", "scope", "description", "params_schema", "supports_dry_run"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Action name (e.g. iam.keys.create, domain.leadscoring.models.list)"
+    },
+    "scope": {
+      "type": "string",
+      "description": "Required scope (e.g. manage.iam, manage.read, manage.domain)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description"
+    },
+    "params_schema": {
+      "type": "object",
+      "required": ["type", "properties"],
+      "properties": {
+        "type": { "const": "object" },
+        "properties": { "type": "object" },
+        "required": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "supports_dry_run": {
+      "type": "boolean",
+      "description": "If true, action supports dry_run and must return impact shape"
+    }
+  }
+}

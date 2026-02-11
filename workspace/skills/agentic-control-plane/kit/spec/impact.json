@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACP Impact Shape",
+  "description": "Standardized impact shape for dry_run responses — all kernels must return this",
+  "type": "object",
+  "required": ["creates", "updates", "deletes", "side_effects", "risk", "warnings"],
+  "properties": {
+    "creates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "count"],
+        "properties": {
+          "type": { "type": "string" },
+          "count": { "type": "integer" },
+          "details": { "type": "object" }
+        }
+      }
+    },
+    "updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "id", "fields"],
+        "properties": {
+          "type": { "type": "string" },
+          "id": { "type": "string" },
+          "fields": { "type": "array", "items": { "type": "string" } },
+          "details": { "type": "object" }
+        }
+      }
+    },
+    "deletes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "count"],
+        "properties": {
+          "type": { "type": "string" },
+          "count": { "type": "integer" },
+          "details": { "type": "object" }
+        }
+      }
+    },
+    "side_effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "count"],
+        "properties": {
+          "type": { "type": "string" },
+          "count": { "type": "integer" },
+          "details": { "type": "object" }
+        }
+      }
+    },
+    "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "estimated_cost": { "type": "number" },
+    "requires_approval": { "type": "boolean" }
+  }
+}

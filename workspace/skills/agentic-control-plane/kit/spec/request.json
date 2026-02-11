@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACP Manage Request",
+  "description": "POST /manage request envelope — universal across all kernels",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Action name (e.g. meta.actions, iam.keys.list, domain.leadscoring.models.create)"
+    },
+    "params": {
+      "type": "object",
+      "description": "Action-specific parameters"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Optional key for safe retries; same key returns cached response"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, compute impact without persisting changes"
+    }
+  }
+}

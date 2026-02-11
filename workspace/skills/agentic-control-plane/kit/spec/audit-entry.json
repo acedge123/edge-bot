@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACP Audit Entry",
+  "description": "Audit log entry shape — all kernels must write entries conforming to this",
+  "type": "object",
+  "required": ["tenantId", "actorType", "actorId", "action", "requestId", "result", "dryRun"],
+  "properties": {
+    "tenantId": { "type": "string" },
+    "actorType": { "type": "string", "enum": ["api_key", "user", "system"] },
+    "actorId": { "type": "string" },
+    "apiKeyId": { "type": "string" },
+    "action": { "type": "string" },
+    "requestId": { "type": "string" },
+    "payloadHash": { "type": "string" },
+    "beforeSnapshot": {},
+    "afterSnapshot": {},
+    "impact": { "$ref": "impact.json" },
+    "result": { "type": "string", "enum": ["success", "denied", "error"] },
+    "errorMessage": { "type": "string" },
+    "ipAddress": { "type": "string" },
+    "idempotencyKey": { "type": "string" },
+    "dryRun": { "type": "boolean" }
+  }
+}

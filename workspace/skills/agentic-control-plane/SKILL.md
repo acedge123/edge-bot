@@ -32,10 +32,13 @@ git pull origin main
 
 ## What the Kit Provides
 
-- **Kernel** – Router, auth, audit, idempotency, rate limiting, ceilings
+- **Spec** – Universal contract (request/response envelope, error codes, impact shape). Source of truth.
+- **Kernels** – Language-specific implementations:
+  - **kernel/** (TypeScript) – Node, Supabase Edge, Express
+  - **kernel-py/** (Python) – Django, FastAPI (skeleton; implement to pass conformance)
 - **Packs** – IAM, webhooks, settings (plus domain-template for custom actions)
 - **Bindings** – Repo-specific config (tenant model, auth, database)
-- **OpenAPI** – Auto-generated spec for agent discovery
+- **Conformance tests** – HTTP-based; run against any `/manage` endpoint
 
 ## Quick Integration Steps
 
@@ -77,9 +80,9 @@ For product-specific actions, create a domain pack using `packs/domain-template/
 
 ### 5. Expose /manage Endpoint
 
-- **Express/Next.js**: Create POST handler that calls `createManageRouter({...}).handler`
-- **Supabase Edge Function**: Same router, wrapped in `serve()`
-- **Django**: The kit is TypeScript/Node. Either (a) run the Node router as a separate service and proxy from Django to it, or (b) follow `kit/INTEGRATION-GUIDE.md` for conceptual Python adapter patterns (you may need to implement a bridge or Node subprocess)
+- **Express/Next.js**: Use `kernel/` (TypeScript) — `createManageRouter({...}).handler`
+- **Supabase Edge Function**: Same TS kernel, wrapped in `serve()`
+- **Django**: Use **kernel-py** (Python) — no Node service. Implement `create_manage_router` per `kit/spec/` and `kit/kernel-py/README.md`. Pass conformance tests with `npm run test:conformance`
 
 ### 6. Generate OpenAPI
 
@@ -103,11 +106,14 @@ See `kit/INTEGRATION-GUIDE.md` for full Django adapter examples and migration st
 
 | File | Purpose |
 |------|---------|
+| `kit/spec/README.md` | Universal contract (source of truth) |
 | `kit/README.md` | Overview and quickstart |
+| `kit/kernel-py/README.md` | Python kernel for Django/FastAPI |
 | `kit/INTEGRATION-GUIDE.md` | Step-by-step Django/Express/Supabase integration |
 | `kit/config/bindings.schema.json` | Bindings schema |
 | `kit/config/example.bindings.json` | Example config |
-| `kit/kernel/src/types.ts` | Adapter interfaces |
+| `kit/kernel/src/types.ts` | TS adapter interfaces |
+| `kit/kernel-py/requirements.txt` | Python deps (kernel-py) |
 
 ## After Integration
 

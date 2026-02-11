@@ -9,7 +9,8 @@
     "test:invariants": "vitest tests/invariants.spec.ts",
     "generate:openapi": "tsx scripts/generate-openapi.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:conformance": "vitest tests/conformance/conformance.spec.ts"
   },
   "keywords": [
     "control-plane",

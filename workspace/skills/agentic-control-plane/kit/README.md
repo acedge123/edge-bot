@@ -5,11 +5,13 @@ A reusable starter kit for adding a `/manage` control-plane API to any multi-ten
 ## Overview
 
 This kit provides:
-- **Kernel** — Core router, auth, audit, idempotency, rate limiting, ceilings
+- **Spec** — Universal contract (request/response envelope, error codes, impact shape, audit). Language-agnostic.
+- **Kernels** — Language-specific implementations that conform to the spec:
+  - **kernel/** (TypeScript) — Node, Supabase Edge, Express, Next.js
+  - **kernel-py/** (Python) — Django, FastAPI (skeleton; implement to pass conformance)
 - **Packs** — Swappable domain modules (IAM, webhooks, settings, billing, domain)
 - **Bindings** — Repo-specific configuration layer
-- **OpenAPI Generator** — Auto-generate OpenAPI 3.0 spec from action definitions
-- **Invariant Tests** — Cross-repo compatibility tests
+- **Conformance Tests** — HTTP-based tests; run against any `/manage` endpoint
 
 ## Quickstart
 
@@ -277,25 +279,42 @@ npm run generate-openapi
 
 ```bash
 npm run test:invariants
-# Runs cross-repo compatibility tests
+# Runs TS kernel unit tests
+
+npm run test:conformance
+# Runs HTTP conformance tests — works against any kernel (TS or Python)
+# Set ACP_BASE_URL and ACP_API_KEY to test your deployed /manage endpoint
 ```
 
 ## Architecture
 
+**One spec, many kernels.** No Node sidecar everywhere — use the kernel for your stack.
+
 ```
-┌─────────────────────────────────┐
-│  Kernel (invariant)             │  Router, auth, audit, idempotency
-├─────────────────────────────────┤
-│  Packs (swappable)              │  IAM, webhooks, settings, billing, domain
-├─────────────────────────────────┤
-│  Bindings (repo-specific)       │  Tenant model, DB client, entity names
-└─────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  Spec (universal)                                       │  Contract, error codes, impact shape, conformance tests
+├─────────────────────────────────────────────────────────┤
+│  Kernels (language-specific)                            │  kernel/ (TS), kernel-py/ (Python)
+├─────────────────────────────────────────────────────────┤
+│  Packs (swappable)                                       │  IAM, webhooks, settings, billing, domain
+├─────────────────────────────────────────────────────────┤
+│  Bindings (repo-specific)                               │  Tenant model, DB client, entity names
+└─────────────────────────────────────────────────────────┘
 ```
+
+### For Python (Django) clients
+
+Use **kernel-py** — no Node service required. See [kernel-py/README.md](./kernel-py/README.md) and [INTEGRATION-GUIDE.md](./INTEGRATION-GUIDE.md).
+
+### For Node/Supabase clients
+
+Use **kernel/** (TypeScript).
 
 ## Documentation
 
-- [MASTER-BLUEPRINT.md](./MASTER-BLUEPRINT.md) - Complete specification
-- [INTEGRATION-GUIDE.md](./INTEGRATION-GUIDE.md) - Step-by-step integration guide for Django/Express/Supabase
+- [spec/README.md](./spec/README.md) - Universal contract (source of truth)
+- [INTEGRATION-GUIDE.md](./INTEGRATION-GUIDE.md) - Step-by-step integration for Django/Express/Supabase
+- [kernel-py/README.md](./kernel-py/README.md) - Python kernel (Django/FastAPI)
 
 ## Real-World Integration Examples
 

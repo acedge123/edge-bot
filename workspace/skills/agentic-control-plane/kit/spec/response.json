@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACP Manage Response",
+  "description": "POST /manage response envelope — universal across all kernels",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["ok", "request_id"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "type": "string" },
+        "data": {},
+        "dry_run": { "type": "boolean" },
+        "code": {
+          "type": "string",
+          "enum": ["IDEMPOTENT_REPLAY"]
+        },
+        "constraints_applied": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["ok", "request_id", "error", "code"],
+      "properties": {
+        "ok": { "const": false },
+        "request_id": { "type": "string" },
+        "error": { "type": "string" },
+        "code": {
+          "type": "string",
+          "enum": [
+            "VALIDATION_ERROR",
+            "SCOPE_DENIED",
+            "NOT_FOUND",
+            "RATE_LIMITED",
+            "CEILING_EXCEEDED",
+            "INVALID_API_KEY",
+            "INTERNAL_ERROR"
+          ]
+        }
+      }
+    }
+  ]
+}

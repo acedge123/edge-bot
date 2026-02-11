@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACP Error Codes",
+  "description": "Standard error codes — all kernels must use these",
+  "type": "object",
+  "properties": {
+    "codes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "http_status", "description"],
+        "properties": {
+          "code": { "type": "string" },
+          "http_status": { "type": "integer" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  },
+  "codes": [
+    { "code": "VALIDATION_ERROR", "http_status": 400, "description": "Request or params invalid" },
+    { "code": "INVALID_API_KEY", "http_status": 401, "description": "Missing or invalid X-API-Key" },
+    { "code": "SCOPE_DENIED", "http_status": 403, "description": "API key lacks required scope" },
+    { "code": "NOT_FOUND", "http_status": 404, "description": "Unknown action" },
+    { "code": "RATE_LIMITED", "http_status": 429, "description": "Rate limit exceeded" },
+    { "code": "CEILING_EXCEEDED", "http_status": 403, "description": "Hard ceiling (quota) exceeded" },
+    { "code": "IDEMPOTENT_REPLAY", "http_status": 200, "description": "Successful replay of cached response" },
+    { "code": "INTERNAL_ERROR", "http_status": 500, "description": "Unhandled server error" }
+  ]
+}

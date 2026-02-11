@@ -1,0 +1,2 @@
+# ACP Kernel — Python
+# Minimal deps; host app (Django/FastAPI) provides DB, cache, etc.
