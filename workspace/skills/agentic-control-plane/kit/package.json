@@ -1,0 +1,32 @@
+{
+  "name": "agentic-control-plane-kit",
+  "version": "0.1.0",
+  "description": "Reusable starter kit for adding /manage control-plane API to multi-tenant SaaS platforms",
+  "main": "kernel/index.ts",
+  "types": "kernel/index.ts",
+  "scripts": {
+    "test": "vitest",
+    "test:invariants": "vitest tests/invariants.spec.ts",
+    "generate:openapi": "tsx scripts/generate-openapi.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "control-plane",
+    "api",
+    "multi-tenant",
+    "agentic",
+    "management-api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "tsx": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@supabase/supabase-js": "^2.0.0"
+  }
+}

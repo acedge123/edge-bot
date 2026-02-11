@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Control Plane Bindings",
+  "description": "Schema for repo-specific bindings configuration",
+  "type": "object",
+  "required": ["tenant", "auth", "database"],
+  "properties": {
+    "tenant": {
+      "type": "object",
+      "required": ["table", "id_column", "get_tenant_fn", "is_admin_fn"],
+      "properties": {
+        "table": {
+          "type": "string",
+          "description": "Tenant table name (e.g., 'brands', 'orgs', 'workspaces')"
+        },
+        "id_column": {
+          "type": "string",
+          "description": "Tenant ID column name (e.g., 'id', 'tenant_id')"
+        },
+        "get_tenant_fn": {
+          "type": "string",
+          "description": "Function name to get tenant ID from context"
+        },
+        "is_admin_fn": {
+          "type": "string",
+          "description": "Function name to check if tenant is platform admin"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": ["keys_table", "key_prefix", "prefix_length", "key_hash_column", "key_prefix_column", "scopes_column"],
+      "properties": {
+        "keys_table": {
+          "type": "string",
+          "description": "API keys table name"
+        },
+        "key_prefix": {
+          "type": "string",
+          "description": "API key prefix (e.g., 'ock_', 'sk_')"
+        },
+        "prefix_length": {
+          "type": "integer",
+          "description": "Length of prefix for lookup (default: 12)",
+          "default": 12
+        },
+        "key_hash_column": {
+          "type": "string",
+          "description": "Column name for key hash"
+        },
+        "key_prefix_column": {
+          "type": "string",
+          "description": "Column name for key prefix"
+        },
+        "scopes_column": {
+          "type": "string",
+          "description": "Column name for scopes (text[] or jsonb)"
+        }
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": ["adapter"],
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "enum": ["supabase", "prisma", "drizzle", "custom"],
+          "description": "Database adapter type"
+        }
+      },
+      "additionalProperties": true
+    },
+    "scopes": {
+      "type": "object",
+      "description": "Scope model configuration",
+      "properties": {
+        "base_scopes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Base scopes available to all management keys",
+          "default": ["manage.read"]
+        },
+        "pack_scopes": {
+          "type": "object",
+          "description": "Pack-specific scopes",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "default": {
+            "iam": ["manage.iam"],
+            "webhooks": ["manage.webhooks"],
+            "settings": ["manage.settings"],
+            "billing": ["manage.billing"],
+            "domain": ["manage.domain"]
+          }
+        }
+      }
+    },
+    "action_namespace": {
+      "type": "string",
+      "description": "Optional prefix for all action names (e.g., 'myapp.')",
+      "default": ""
+    }
+  }
+}

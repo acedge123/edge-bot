@@ -31,3 +31,4 @@
 29. process-watch
 30. supabase
 31. todo-tracker
+32. agentic-control-plane

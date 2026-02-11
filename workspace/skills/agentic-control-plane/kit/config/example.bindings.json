@@ -1,0 +1,31 @@
+{
+  "tenant": {
+    "table": "brands",
+    "id_column": "id",
+    "get_tenant_fn": "get_my_brand_id",
+    "is_admin_fn": "is_platform_admin"
+  },
+  "auth": {
+    "keys_table": "api_keys",
+    "key_prefix": "ock_",
+    "prefix_length": 12,
+    "key_hash_column": "key_hash",
+    "key_prefix_column": "prefix",
+    "scopes_column": "scopes"
+  },
+  "database": {
+    "adapter": "supabase",
+    "service_role_key": "${SUPABASE_SERVICE_ROLE_KEY}"
+  },
+  "scopes": {
+    "base_scopes": ["manage.read"],
+    "pack_scopes": {
+      "iam": ["manage.iam"],
+      "webhooks": ["manage.webhooks"],
+      "settings": ["manage.settings"],
+      "billing": ["manage.billing"],
+      "domain": ["manage.domain"]
+    }
+  },
+  "action_namespace": ""
+}
