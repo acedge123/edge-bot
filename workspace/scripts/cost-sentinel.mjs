@@ -9,7 +9,7 @@
  *   COMPOSIO_API_KEY (optional; v1 stub)
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -19,6 +19,12 @@ const mode = (() => {
   return m || 'daily';
 })();
 const dryRun = args.has('--dry-run');
+const checkPause = args.has('--check-pause');
+
+// Kill-switch: write ~/.openclaw/.cost-pause when spend exceeds threshold; jobs-worker refuses non-chat_ui jobs
+const COST_PAUSE_FILE = join(homedir(), '.openclaw', '.cost-pause');
+const COST_PAUSE_DAILY_USD = parseFloat(process.env.COST_PAUSE_DAILY_USD || '0') || 0;
+const COST_PAUSE_HOURLY_USD = parseFloat(process.env.COST_PAUSE_HOURLY_USD || '0') || 0;
 
 function loadEnvFileIfPresent() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -65,7 +71,7 @@ async function fetchJson(url, headers) {
   }
 }
 
-async function openaiCostsSummary({ startUnixSec, endUnixSec }) {
+async function openaiCostsSummary({ startUnixSec, endUnixSec, bucketWidth = '1d' }) {
   // New-style org usage/costs endpoints require a key with api.usage.read scope.
   const key = process.env.OPENAI_ADMIN_API_KEY || process.env.OPENAI_ADMIN_KEY || process.env.OPENAI_API_KEY;
   if (!key) {
@@ -74,42 +80,63 @@ async function openaiCostsSummary({ startUnixSec, endUnixSec }) {
 
   const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
 
-  // Prefer Costs endpoint (authoritative spend). If unavailable, we’ll return a clear error.
-  const url = `https://api.openai.com/v1/organization/costs?start_time=${startUnixSec}&end_time=${endUnixSec}&bucket_width=1d`;
+  // NOTE: This endpoint paginates buckets. If you request a wide range (e.g. MTD), you MUST follow
+  // next_page until has_more=false, otherwise you’ll undercount (often capped to 7 buckets).
+  const baseUrl = `https://api.openai.com/v1/organization/costs?start_time=${startUnixSec}&end_time=${endUnixSec}&bucket_width=${bucketWidth || '1d'}`;
+
   try {
-    const data = await fetchJson(url, headers);
+    let pageUrl = baseUrl;
+    let guard = 0;
 
     // Flexible parsing: sum any bucket.result.amount.value fields if present.
     let totalUsd = 0;
-    let found = false;
+    let foundAny = false;
 
-    const buckets = Array.isArray(data?.data) ? data.data : [];
-    for (const b of buckets) {
-      const results = Array.isArray(b?.results) ? b.results : [];
-      for (const r of results) {
-        const amt = r?.amount;
-        const vRaw =
-          (amt && (typeof amt.value === 'number' || typeof amt.value === 'string') ? amt.value : null) ??
-          (typeof r?.amount_usd === 'number' || typeof r?.amount_usd === 'string' ? r.amount_usd : null);
+    // Keep the first page for debugging.
+    let firstPageRaw = null;
 
-        const v = typeof vRaw === 'string' ? Number.parseFloat(vRaw) : vRaw;
-        if (typeof v === 'number' && Number.isFinite(v)) {
-          totalUsd += v;
-          found = true;
+    while (pageUrl) {
+      guard += 1;
+      if (guard > 50) throw new Error('OpenAI costs: pagination guard tripped (>50 pages)');
+
+      const data = await fetchJson(pageUrl, headers);
+      if (!firstPageRaw) firstPageRaw = data;
+
+      const buckets = Array.isArray(data?.data) ? data.data : [];
+      for (const b of buckets) {
+        const results = Array.isArray(b?.results) ? b.results : [];
+        for (const r of results) {
+          const amt = r?.amount;
+          const vRaw =
+            (amt && (typeof amt.value === 'number' || typeof amt.value === 'string') ? amt.value : null) ??
+            (typeof r?.amount_usd === 'number' || typeof r?.amount_usd === 'string' ? r.amount_usd : null);
+
+          const v = typeof vRaw === 'string' ? Number.parseFloat(vRaw) : vRaw;
+          if (typeof v === 'number' && Number.isFinite(v)) {
+            totalUsd += v;
+            foundAny = true;
+          }
         }
+      }
+
+      if (data?.has_more && data?.next_page) {
+        pageUrl = `${baseUrl}&page=${encodeURIComponent(data.next_page)}`;
+      } else {
+        pageUrl = null;
       }
     }
 
-    if (!found && typeof data?.total_cost === 'number') {
-      totalUsd = data.total_cost;
-      found = true;
+    // Some orgs may return total_cost. Prefer our computed sum if we found any line items;
+    // fall back to total_cost when there were no parsed items.
+    if (!foundAny && typeof firstPageRaw?.total_cost === 'number') {
+      return { ok: true, usd: firstPageRaw.total_cost, raw: firstPageRaw };
     }
 
-    if (!found) {
-      return { ok: false, summary: 'OpenAI costs: unexpected response shape (endpoint ok but could not parse total)' };
+    if (!foundAny) {
+      return { ok: false, summary: 'OpenAI costs: unexpected response shape (endpoint ok but could not parse any results)' };
     }
 
-    return { ok: true, usd: totalUsd, raw: data };
+    return { ok: true, usd: totalUsd, raw: firstPageRaw };
   } catch (e) {
     // Provide human-actionable hints for the common failure modes.
     const msg = String(e.message || e);
@@ -194,6 +221,74 @@ async function buildReport() {
   }
 
   return lines.join('\n');
+}
+
+if (checkPause) {
+  // Kill-switch: write .cost-pause when spend exceeds threshold; jobs-worker refuses non-chat_ui jobs
+  if (COST_PAUSE_DAILY_USD <= 0 && COST_PAUSE_HOURLY_USD <= 0) {
+    console.error('check-pause: set COST_PAUSE_DAILY_USD and/or COST_PAUSE_HOURLY_USD (e.g. 50 for $50)');
+    process.exit(1);
+  }
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+  let dailyUsd = 0;
+  let hourlyUsd = 0;
+  let fail = false;
+
+  if (COST_PAUSE_DAILY_USD > 0) {
+    const r = await openaiCostsSummary({
+      startUnixSec: Math.floor(oneDayAgo.getTime() / 1000),
+      endUnixSec: Math.floor(now.getTime() / 1000),
+    });
+    if (r.ok) dailyUsd = r.usd;
+    else {
+      console.error('check-pause: daily fetch failed:', r.summary);
+      fail = true;
+    }
+  }
+  if (COST_PAUSE_HOURLY_USD > 0 && !fail) {
+    const r = await openaiCostsSummary({
+      startUnixSec: Math.floor(oneHourAgo.getTime() / 1000),
+      endUnixSec: Math.floor(now.getTime() / 1000),
+      bucketWidth: '1h',
+    });
+    if (r.ok) hourlyUsd = r.usd;
+    else {
+      // API may not support 1h; fall back to daily check only for this run
+      hourlyUsd = 0;
+      if (!COST_PAUSE_DAILY_USD) console.warn('check-pause: hourly fetch failed (try COST_PAUSE_DAILY_USD):', r.summary);
+    }
+  }
+
+  const dailyExceeded = COST_PAUSE_DAILY_USD > 0 && dailyUsd >= COST_PAUSE_DAILY_USD;
+  const hourlyExceeded = COST_PAUSE_HOURLY_USD > 0 && hourlyUsd >= COST_PAUSE_HOURLY_USD;
+
+  if (dailyExceeded || hourlyExceeded) {
+    const msg = `Cost-pause: daily=${dailyUsd.toFixed(2)} (limit ${COST_PAUSE_DAILY_USD}), hourly=${hourlyUsd.toFixed(2)} (limit ${COST_PAUSE_HOURLY_USD})`;
+    const dir = join(homedir(), '.openclaw');
+    try {
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(COST_PAUSE_FILE, JSON.stringify({ at: now.toISOString(), dailyUsd, hourlyUsd, reason: msg }), 'utf8');
+      console.log('PAUSE ACTIVE:', msg);
+      process.exit(1);
+    } catch (e) {
+      console.error('check-pause: could not write .cost-pause:', e.message);
+      process.exit(1);
+    }
+  } else {
+    if (existsSync(COST_PAUSE_FILE)) {
+      try {
+        unlinkSync(COST_PAUSE_FILE);
+        console.log('Cost-pause cleared (spend within limits)');
+      } catch (e) {
+        console.error('check-pause: could not remove .cost-pause:', e.message);
+      }
+    }
+    console.log('Cost-pause check: OK (daily=$' + dailyUsd.toFixed(2) + ', hourly=$' + hourlyUsd.toFixed(2) + ')');
+    process.exit(0);
+  }
 }
 
 const report = await buildReport();
