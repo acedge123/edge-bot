@@ -1,0 +1,66 @@
+{
+  "models": {
+    "cheap": "openai/gpt-4o-mini",
+    "strong": "openai/gpt-5.2"
+  },
+  "overrideTags": {
+    "strong": "@model:gpt-5.2",
+    "cheap": "@model:gpt-4o-mini"
+  },
+  "thresholds": {
+    "strongScore": 2,
+    "minConfidence": 0.6
+  },
+  "signals": {
+    "strong": {
+      "patterns": [
+        "```",
+        "\\bdiff\\b",
+        "\\bpatch\\b",
+        "\\bstack trace\\b",
+        "\\btraceback\\b",
+        "\\bexception\\b",
+        "\\bsegfault\\b",
+        "\\bsyntax error\\b",
+        "\\bcompile(d|)\\b",
+        "\\bbuild failed\\b",
+        "\\blint\\b",
+        "\\bunit test\\b",
+        "\\brefactor\\b",
+        "\\boptimi[sz]e\\b",
+        "\\bperformance\\b",
+        "\\bcomplexity\\b",
+        "\\btypescript\\b",
+        "\\bts\\d{3,5}\\b",
+        "\\berror\\b",
+        "\\bbug\\b",
+        "\\bjavascript\\b",
+        "\\bnode(js|)\\b",
+        "\\bpython\\b",
+        "\\bsql\\b",
+        "\\bregex\\b",
+        "\\bdocker\\b",
+        "\\bkubernetes\\b",
+        "\\bterraform\\b",
+        "\\bgithub actions\\b",
+        "\\bci/cd\\b",
+        "\\bapi design\\b",
+        "\\barchitecture\\b",
+        "\\bsecurity review\\b"
+      ]
+    },
+    "cheap": {
+      "patterns": [
+        "\\bdefine\\b",
+        "\\bwhat is\\b",
+        "\\bsummarize\\b",
+        "\\btl;dr\\b",
+        "\\brewrite\\b",
+        "\\bproofread\\b",
+        "\\bformat\\b",
+        "\\bmake a checklist\\b",
+        "\\bdraft (an|a) (email|text|message)\\b"
+      ]
+    }
+  }
+}
