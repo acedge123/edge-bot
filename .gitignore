@@ -54,3 +54,6 @@ Thumbs.db
 
 # Local clones for audits / scratch (do not commit)
 external/
+
+# Deploy: packaged runtime (run deploy/package-runtime.sh before build)
+deploy/runtime/
