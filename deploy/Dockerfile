@@ -11,8 +11,8 @@ FROM node:20-slim
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
 
-# Install git (required by openclaw npm install)
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+# Install git + ca-certificates (git for npm deps, ca-certs for HTTPS)
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Use HTTPS for git (avoids ssh for public deps like libsignal-node)
