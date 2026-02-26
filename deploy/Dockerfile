@@ -6,7 +6,7 @@
 #   ./deploy/package-runtime.sh
 #   docker build -f deploy/Dockerfile -t openclaw-gateway .
 
-FROM node:20-slim
+FROM node:22-slim
 
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
