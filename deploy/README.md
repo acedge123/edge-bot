@@ -31,8 +31,7 @@ chmod +x deploy/package-runtime.sh
 docker build -f deploy/Dockerfile -t openclaw-gateway .
 docker run -p 18789:18789 \
   -e OPENCLAW_GATEWAY_TOKEN=xxx \
-  -e ANTHROPIC_API_KEY=xxx \
-  -e OPENROUTER_API_KEY=xxx \
+  -e OPENAI_API_KEY=xxx \
   openclaw-gateway
 ```
 
@@ -43,14 +42,15 @@ railway link   # or create new project
 railway up
 ```
 
-Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc.
+Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc.
 
 ## Required Env Vars (Railway)
 
 | Variable | Purpose |
 |----------|---------|
 | `OPENCLAW_GATEWAY_TOKEN` | Webhook/auth token (generate: `openssl rand -hex 24`) |
-| `ANTHROPIC_API_KEY` | Claude API key |
+| `OPENAI_API_KEY` | OpenAI API key (default model: gpt-5.2) |
+| `ANTHROPIC_API_KEY` | Claude API key; only if you override to use Claude |
 | `OPENROUTER_API_KEY` | Optional; if using OpenRouter |
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
