@@ -1,6 +1,6 @@
 # Runtime template
 
-Copy this to `deploy/runtime/` and add your openclaw.json, config.yaml from ~/.openclaw/
-Or run `./deploy/package-runtime.sh` to auto-package from ~/.openclaw/
+Used when `deploy/runtime/` is absent (e.g. GitHub-triggered builds).
+For local/CLI deploys, run `./deploy/package-runtime.sh` to create `deploy/runtime/` from ~/.openclaw/.
 
-Never commit .env or credentials.
+Never commit .env or credentials in runtime-template.

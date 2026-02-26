@@ -1,0 +1,9 @@
+{
+  "agents": {},
+  "env": {
+    "vars": {}
+  },
+  "hooks": {
+    "enabled": true
+  }
+}

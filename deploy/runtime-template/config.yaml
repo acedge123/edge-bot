@@ -1,0 +1,4 @@
+# Minimal config for Railway deploy (secrets via env vars)
+gateway:
+  trustedProxies: []
+  bind: "0.0.0.0"
