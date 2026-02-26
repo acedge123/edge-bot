@@ -40,4 +40,4 @@ WORKDIR /app
 EXPOSE 18789
 
 # Gateway binds to 0.0.0.0 for Railway (override bind in config for production)
-CMD ["openclaw", "gateway", "--port", "18789"]
+CMD ["openclaw", "gateway", "--port", "18789", "--allow-unconfigured"]
