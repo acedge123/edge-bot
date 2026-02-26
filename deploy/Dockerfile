@@ -50,5 +50,6 @@ WORKDIR /app
 EXPOSE 18789
 
 # Gateway + Echelon worker: gateway in background, worker polls agent-next
+# Bind to Railway port and all interfaces (0.0.0.0 required for Railway)
 # OPENCLAW_GATEWAY_PORT so gateway call connects to correct port
-CMD ["sh", "-c", "export PORT=${PORT:-18789} OPENCLAW_GATEWAY_PORT=$PORT && openclaw gateway --port $PORT --allow-unconfigured & sleep 5 && node /app/.openclaw/workspace/scripts/echelon-agent-worker.mjs & wait"]
+CMD ["sh", "-c", "export PORT=${PORT:-18789} OPENCLAW_GATEWAY_PORT=$PORT && openclaw gateway --host 0.0.0.0 --port $PORT --allow-unconfigured & sleep 5 && node /app/.openclaw/workspace/scripts/echelon-agent-worker.mjs & wait"]
