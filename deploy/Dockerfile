@@ -39,5 +39,5 @@ WORKDIR /app
 
 EXPOSE 18789
 
-# Gateway binds to 0.0.0.0 for Railway (override bind in config for production)
-CMD ["openclaw", "gateway", "--port", "18789", "--allow-unconfigured"]
+# Gateway binds to 0.0.0.0 for Railway; use PORT env if set (Railway injects it)
+CMD ["sh", "-c", "openclaw gateway --port ${PORT:-18789} --allow-unconfigured"]
