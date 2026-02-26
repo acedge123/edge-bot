@@ -15,6 +15,9 @@ ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends git \
   && rm -rf /var/lib/apt/lists/*
 
+# Use HTTPS for git (avoids ssh for public deps like libsignal-node)
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
 # Install OpenClaw globally
 RUN npm install -g openclaw@latest
 
