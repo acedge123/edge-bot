@@ -11,8 +11,8 @@ FROM node:22-slim
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
 
-# Install git + ca-certificates (git for npm deps, ca-certs for HTTPS)
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+# Install git, ca-certificates, jq (git for npm deps, jq for config override)
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq \
   && rm -rf /var/lib/apt/lists/*
 
 # Use HTTPS for git (avoids ssh for public deps like libsignal-node)
@@ -31,6 +31,9 @@ RUN if [ -d /tmp/deploy/runtime ] && [ -n "$(ls -A /tmp/deploy/runtime 2>/dev/nu
     else \
       cp -a /tmp/deploy/runtime-template/. /app/.openclaw/; \
     fi && rm -rf /tmp/deploy
+
+# Force OpenAI gpt-5.2 in image (overrides any packaged/template config)
+RUN jq '.agents.defaults.model.primary = "openai/gpt-5.2" | .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] | .agent.model.primary = "openai/gpt-5.2"' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json
 
 # Copy workspace (AGENTS.md, scripts, skills, etc.)
 COPY workspace/ /app/.openclaw/workspace/
