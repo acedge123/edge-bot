@@ -43,6 +43,7 @@ OPENAI_API_KEY=
 AGENT_VAULT_URL=
 AGENT_EDGE_KEY=
 OPENCLAW_HOOK_TOKEN=
+ECHELON_EDGE_URL=
 EOF
 
 # Force OpenAI gpt-5.2 for Railway (override whatever was in ~/.openclaw)

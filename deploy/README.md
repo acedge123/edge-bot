@@ -55,6 +55,9 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
 | `OPENCLAW_HOOK_TOKEN` | **Must differ from** `OPENCLAW_GATEWAY_TOKEN`. Used for /hooks/wake. Generate: `openssl rand -hex 24` |
+| `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://yczomejrvihbmydyraqg.supabase.co/functions/v1`) |
+
+**Echelon Hosted Agent:** The worker (`echelon-agent-worker.mjs`) runs alongside the gateway and polls `agent-next`, sends jobs to the agent via chat, and acks via `agent-ack`. Requires `AGENT_EDGE_KEY` (same as Echelon backend secrets).
 
 Add any other keys from your `~/.openclaw/.env` as needed.
 

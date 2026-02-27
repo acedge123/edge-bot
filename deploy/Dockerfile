@@ -47,5 +47,6 @@ WORKDIR /app
 
 EXPOSE 18789
 
-# Gateway binds to 0.0.0.0 for Railway; use PORT env if set (Railway injects it)
-CMD ["sh", "-c", "openclaw gateway --port ${PORT:-18789} --allow-unconfigured"]
+# Gateway + Echelon worker: gateway in background, worker polls agent-next
+# OPENCLAW_GATEWAY_PORT so gateway call connects to correct port
+CMD ["sh", "-c", "export PORT=${PORT:-18789} OPENCLAW_GATEWAY_PORT=$PORT && openclaw gateway --port $PORT --allow-unconfigured & sleep 5 && node /app/.openclaw/workspace/scripts/echelon-agent-worker.mjs & wait"]
