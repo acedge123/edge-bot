@@ -41,7 +41,9 @@ RUN if [ -f /app/.openclaw/openclaw.json ]; then \
     fi
 
 # Copy workspace (AGENTS.md, scripts, skills, etc.)
+# workspace/skills has highest precedence per OpenClaw; must be present
 COPY workspace/ /app/.openclaw/workspace/
+RUN ls -la /app/.openclaw/workspace/ && ls -la /app/.openclaw/workspace/skills/ 2>/dev/null || echo "WARN: workspace/skills missing"
 
 WORKDIR /app
 
