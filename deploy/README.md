@@ -54,7 +54,7 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | `OPENROUTER_API_KEY` | Optional; if using OpenRouter |
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
-| `OPENCLAW_HOOK_TOKEN` | Same as `OPENCLAW_GATEWAY_TOKEN` (for /hooks/wake) |
+| `OPENCLAW_HOOK_TOKEN` | **Must differ from** `OPENCLAW_GATEWAY_TOKEN`. Used for /hooks/wake. Generate: `openssl rand -hex 24` |
 
 Add any other keys from your `~/.openclaw/.env` as needed.
 
