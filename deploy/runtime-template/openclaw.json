@@ -1,1 +1,1 @@
-{"agent":{"model":{"primary":"openai/gpt-5.2"}},"agents":{},"env":{"vars":{}},"hooks":{"enabled":true}}
+{"agent":{"model":{"primary":"openai/gpt-5.2"}},"agents":{"defaults":{"model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"env":{"vars":{}},"hooks":{"enabled":true}}
