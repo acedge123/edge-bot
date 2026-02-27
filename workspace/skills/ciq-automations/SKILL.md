@@ -8,13 +8,31 @@ metadata: {"clawdbot":{"requires":{"env":["platform_key"]}}}
 
 # CIQ Automations Skill
 
-**Purpose:** Enable interactions with CreatorIQ for automating tasks such as campaign management, list creation, and executing API calls.
+When calling CIQ Automations, **never use a raw CreatorIQ API key.**
 
-**Env:** Set `platform_key` (Railway or local). The platform key resolves the correct CIQ API credentials server-side based on the brand's `ciq_api_token_secret_name` — the agent never sees the upstream secret.
+Use the tenant platform key in the `X-API-Key` header against the `/functions/v1/manage` endpoint.
 
 ---
 
-## Call Shape (exact format for agent)
+## Workflow
+
+1. Call `meta.brands.list` to discover available brands.
+2. Select the target brand.
+3. Call the desired `domain.ciq.*` action with either `brand_id` or `brand_slug`.
+4. Pass only the platform key. The upstream CIQ credential is resolved server-side.
+
+---
+
+## Rules
+
+- Do not send raw CreatorIQ credentials.
+- Do not store or request CIQ tenant secrets.
+- Prefer `brand_id` after discovery for reliability.
+- Use `brand_slug` only when it exactly matches the brand `name` or `display_name` (case-insensitive). It is not a fuzzy alias — e.g. "tmwc" only works if the stored name or display_name is exactly "tmwc".
+
+---
+
+## Call Shape (agent contract)
 
 ```bash
 curl -X POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage \
@@ -33,16 +51,18 @@ curl -X POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage \
 
 | Method | Example |
 |--------|---------|
-| `brand_id` in body | `"brand_id": "1653db0d-c39f-..."` |
-| `brand_slug` in body | `"brand_slug": "The Mom Walk Collective"` (matches name or display_name, case-insensitive) |
+| `brand_id` in body | `"brand_id": "1653db0d-c39f-..."` (preferred after discovery) |
+| `brand_slug` in body | `"brand_slug": "The Mom Walk Collective"` — must match `name` or `display_name` exactly (case-insensitive) |
 | `X-Brand-Id` header | `X-Brand-Id: 1653db0d-c39f-...` |
 
 ---
 
-## Discovery (get available brand IDs)
+## Discovery (get available brands)
+
+Use `meta.brands.list` (not `domain.brands.list`):
 
 ```json
-{ "action": "domain.brands.list" }
+{ "action": "meta.brands.list" }
 ```
 
 ---
@@ -64,7 +84,7 @@ curl -X POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage \
 ```json
 {
   "action": "domain.ciq.campaigns.publishers.add",
-  "brand_slug": "tmwc",
+  "brand_slug": "The Mom Walk Collective",
   "params": {
     "campaign_id": 42066,
     "publisher_id": 3293835,
@@ -72,19 +92,3 @@ curl -X POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage \
   }
 }
 ```
-
----
-
-## Key Functions
-
-- **Generate campaigns**: Create new campaigns in CIQ based on given parameters.
-- **Manage questions**: Upsert questions related to lead scoring.
-- **Fetch actions**: List available actions and their requirements for proper integration.
-
----
-
-## Notes
-
-- The platform key resolves CIQ credentials server-side — never pass the raw CreatorIQ API key.
-- Use `domain.brands.list` first to discover available brands and their IDs.
-- `brand_slug` matches name or display_name (case-insensitive).
