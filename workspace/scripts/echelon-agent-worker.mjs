@@ -5,7 +5,7 @@
  *
  * Env (Railway or ~/.openclaw/.env):
  *   ECHELON_EDGE_URL   - Base URL for agent-next/agent-ack (e.g. https://<project>.supabase.co/functions/v1)
- *   AGENT_EDGE_KEY     - Bearer token for agent-next and agent-ack
+ *   AGENT_HOSTED_EDGE_KEY - Bearer token for agent-next and agent-ack
  *   GATEWAY_HTTP_URL   - Gateway base (default http://127.0.0.1:${PORT:-18789}) for same-container Railway
  *   OPENCLAW_HOOK_TOKEN - For /hooks/wake fallback; not needed if using gateway call only
  *   ECHELON_POLL_MS    - Poll interval when idle (default 2000)
@@ -40,7 +40,7 @@ function loadOpenClawEnv() {
 loadOpenClawEnv();
 
 const ECHELON_EDGE_URL = (process.env.ECHELON_EDGE_URL || 'https://yczomejrvihbmydyraqg.supabase.co/functions/v1').replace(/\/+$/, '');
-const AGENT_EDGE_KEY = (process.env.AGENT_EDGE_KEY || '').trim();
+const AGENT_EDGE_KEY = (process.env.AGENT_HOSTED_EDGE_KEY || process.env.AGENT_EDGE_KEY || '').trim();
 const PORT = process.env.PORT || '18789';
 const GATEWAY_HTTP_URL = (process.env.GATEWAY_HTTP_URL || `http://127.0.0.1:${PORT}`).replace(/\/+$/, '');
 const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
@@ -49,7 +49,7 @@ const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
 const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 
 if (!AGENT_EDGE_KEY) {
-  console.error('Missing AGENT_EDGE_KEY. Set in Railway env or ~/.openclaw/.env');
+  console.error('Missing AGENT_HOSTED_EDGE_KEY. Set in Railway env or ~/.openclaw/.env');
   process.exit(1);
 }
 
@@ -57,7 +57,7 @@ const checkOnly = process.argv.includes('--check');
 if (checkOnly) {
   console.log('Echelon worker config:');
   console.log('  ECHELON_EDGE_URL:', ECHELON_EDGE_URL);
-  console.log('  AGENT_EDGE_KEY:', AGENT_EDGE_KEY ? '***set***' : '(missing)');
+  console.log('  AGENT_HOSTED_EDGE_KEY:', AGENT_EDGE_KEY ? '***set***' : '(missing)');
   console.log('  GATEWAY_HTTP_URL:', GATEWAY_HTTP_URL);
   console.log('  WORKER_ID:', WORKER_ID);
   (async () => {
