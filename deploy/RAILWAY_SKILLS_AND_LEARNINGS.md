@@ -10,7 +10,7 @@ Add these to Railway so the agent can access external services:
 |----------|---------|
 | `AGENT_VAULT_URL` | Supabase Edge Function URL for agent-vault (e.g. `https://<project>.supabase.co/functions/v1/agent-vault`) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault (learnings, contacts, tasks). Same value as in Supabase secrets. |
-| `CIQ_MANAGE_PLATFORM_KEY` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
+| `platform_key` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
 
 **Note:** `AGENT_EDGE_KEY` is for Agent Vault (learnings). `AGENT_HOSTED_EDGE_KEY` is for Echelon (agent-next/agent-ack). They can be different.
 
@@ -19,7 +19,7 @@ Add these to Railway so the agent can access external services:
 **Workspace skills** (`workspace/skills/`) are already in the repo and deploy with the image:
 
 - `agent-learnings` — posts learnings to Agent Vault (needs AGENT_VAULT_URL, AGENT_EDGE_KEY)
-- `ciq-manage-api` — CIQ Manage API reference (needs CIQ_MANAGE_PLATFORM_KEY)
+- `ciq-manage-api` — CIQ Manage API reference (needs platform_key)
 - `agentic-control-plane`, `echelon-signup`, `leadscoring` — etc.
 
 These are copied by the Dockerfile. No extra steps unless you add new skills.
@@ -46,7 +46,7 @@ No need to copy files — learnings are already in Supabase.
 |------|--------|
 | AGENT_VAULT_URL | Set in Railway (your agent-vault Supabase URL) |
 | AGENT_EDGE_KEY | Set in Railway (same as Supabase agent-vault secret) |
-| CIQ_MANAGE_PLATFORM_KEY | Set in Railway (platform key from signup/onboarding) |
+| platform_key | Set in Railway (platform key from signup/onboarding) |
 | Learnings | Already in Supabase — agent queries via agent-learnings |
 | Skills | Already in repo — deploy automatically |
 | CIQ how-to | Add `workspace/docs/CIQ_LEARNINGS.md` if you want extra context |

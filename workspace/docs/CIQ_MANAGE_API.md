@@ -2,7 +2,7 @@
 
 Endpoint: `POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage`
 
-Auth: header `X-API-Key: <platform_key>` — use your platform/tenant API key (from signup or onboarding, e.g. `ciq_xxx`). The manage router resolves tenant and fetches the CIQ credential server-side. Never pass the raw CreatorIQ API key.
+Auth: header `X-API-Key: $platform_key` — use env var `platform_key` (platform/tenant API key from signup/onboarding, e.g. `ciq_xxx`). The manage router resolves tenant and fetches the CIQ credential server-side. Never pass the raw CreatorIQ API key.
 
 Body shape:
 ```json

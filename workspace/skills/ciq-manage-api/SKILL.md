@@ -4,7 +4,7 @@ A reference for the **CIQ Manage API** exposed as a Supabase Edge Function.
 
 - **Base URL**: `https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage`
 - **Method**: `POST`
-- **Auth header**: `X-API-Key: <platform_key>`
+- **Auth header**: `X-API-Key: $platform_key` (env var `platform_key` from Railway/local)
   - Use your **platform/tenant API key** (from signup or onboarding, e.g. `ciq_xxx`). The manage router resolves tenant from this key and fetches the CIQ credential server-side — never pass the raw CreatorIQ API key.
 
 ## Request format
@@ -31,7 +31,7 @@ Notes:
 ```bash
 curl -s -X POST "https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: $CIQ_MANAGE_PLATFORM_KEY" \
+  -H "X-API-Key: $platform_key" \
   -d '{"action":"meta.actions"}'
 ```
 
@@ -39,7 +39,7 @@ curl -s -X POST "https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage" \
 ```bash
 curl -s -X POST "https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: $CIQ_MANAGE_PLATFORM_KEY" \
+  -H "X-API-Key: $platform_key" \
   -d '{"action":"meta.brands.list"}'
 ```
 
@@ -47,7 +47,7 @@ curl -s -X POST "https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage" \
 ```bash
 curl -s -X POST "https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: $CIQ_MANAGE_PLATFORM_KEY" \
+  -H "X-API-Key: $platform_key" \
   -d '{"brand_slug":"Mom Walk","action":"domain.ciq.lists.list","params":{}}'
 ```
 
@@ -61,7 +61,7 @@ Regenerate it with:
 ```bash
 curl -s -X POST "https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: $CIQ_MANAGE_PLATFORM_KEY" \
+  -H "X-API-Key: $platform_key" \
   -d '{"action":"meta.actions"}' > /tmp/ciq-meta-actions.json
 ```
 
