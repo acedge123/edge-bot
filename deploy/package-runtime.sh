@@ -46,8 +46,10 @@ OPENCLAW_HOOK_TOKEN=
 EOF
 
 # Force OpenAI gpt-5.2 for Railway (override whatever was in ~/.openclaw)
+# Strip legacy agent.* key (use agents.defaults only)
 if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
   jq '
+    del(.agent) |
     .agents.defaults.model.primary = "openai/gpt-5.2" |
     .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] |
     (.agents.list[]? | select(.id == "main") | .model) = "openai/gpt-5.2"

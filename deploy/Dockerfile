@@ -33,10 +33,11 @@ RUN if [ -d /tmp/deploy/runtime ] && [ -n "$(ls -A /tmp/deploy/runtime 2>/dev/nu
     fi && rm -rf /tmp/deploy
 
 # Force OpenAI gpt-5.2 in image (overrides any packaged/template config)
+# Use agents.defaults only (legacy agent.* key removed)
 RUN if [ -f /app/.openclaw/openclaw.json ]; then \
-      jq '.agents.defaults.model.primary = "openai/gpt-5.2" | .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] | .agent.model.primary = "openai/gpt-5.2"' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
+      jq 'del(.agent) | .agents.defaults.model.primary = "openai/gpt-5.2" | .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"]' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
     else \
-      echo '{"agent":{"model":{"primary":"openai/gpt-5.2"}},"agents":{"defaults":{"model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true}}' > /app/.openclaw/openclaw.json; \
+      echo '{"agents":{"defaults":{"model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true}}' > /app/.openclaw/openclaw.json; \
     fi
 
 # Copy workspace (AGENTS.md, scripts, skills, etc.)
