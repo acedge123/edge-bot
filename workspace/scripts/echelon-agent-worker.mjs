@@ -43,6 +43,8 @@ const ECHELON_EDGE_URL = (process.env.ECHELON_EDGE_URL || 'https://yczomejrvihbm
 const AGENT_EDGE_KEY = (process.env.AGENT_HOSTED_EDGE_KEY || process.env.AGENT_EDGE_KEY || '').trim();
 const PORT = process.env.PORT || '18789';
 const GATEWAY_HTTP_URL = (process.env.GATEWAY_HTTP_URL || `http://127.0.0.1:${PORT}`).replace(/\/+$/, '');
+// Ensure openclaw gateway call connects to correct port (Railway injects PORT)
+process.env.OPENCLAW_GATEWAY_PORT = process.env.OPENCLAW_GATEWAY_PORT || PORT;
 const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
 const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 10));
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
