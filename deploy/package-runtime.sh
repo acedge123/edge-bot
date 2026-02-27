@@ -15,12 +15,14 @@ mkdir -p "$DEST"
 
 # Copy core runtime (exclude secrets and volatile dirs)
 if command -v rsync &>/dev/null; then
-  rsync -a \
+  rsync -aL \
     --exclude='.env' \
     --exclude='*.key' --exclude='*.pem' --exclude='*.p12' \
     --exclude='credentials/' --exclude='logs/' --exclude='media/' \
     --exclude='delivery-queue/' --exclude='browser/' --exclude='canvas/' \
     --exclude='.git' --exclude='workspace' \
+    --exclude='node_modules/' --exclude='**/node_modules/' \
+    --exclude='agents/*/sessions/' \
     "$SRC/" "$DEST/"
 else
   for f in config.yaml openclaw.json; do
@@ -37,12 +39,21 @@ fi
 cat > "$DEST/.env.template" << 'EOF'
 # Set these in Railway env vars — never commit real values
 OPENCLAW_GATEWAY_TOKEN=
-ANTHROPIC_API_KEY=
-OPENROUTER_API_KEY=
+OPENAI_API_KEY=
 AGENT_VAULT_URL=
 AGENT_EDGE_KEY=
 OPENCLAW_HOOK_TOKEN=
 EOF
+
+# Force OpenAI gpt-5.2 for Railway (override whatever was in ~/.openclaw)
+if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
+  jq '
+    .agents.defaults.model.primary = "openai/gpt-5.2" |
+    .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] |
+    (.agents.list[]? | select(.id == "main") | .model) = "openai/gpt-5.2"
+  ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
+  echo "Set packaged model to openai/gpt-5.2 for Railway"
+fi
 
 echo "Done. Runtime packaged in $DEST"
 echo "Next: docker build -f deploy/Dockerfile -t openclaw-gateway ."
