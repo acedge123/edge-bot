@@ -10,6 +10,11 @@
  *   OPENCLAW_HOOK_TOKEN - For /hooks/wake fallback; not needed if using gateway call only
  *   ECHELON_POLL_MS    - Poll interval when idle (default 2000)
  *   WORKER_ID          - worker_id sent to agent-next (default railway-echelon-worker)
+ *   CIA_URL            - Repo C base URL for SMS sending (e.g. https://<project>.supabase.co)
+ *   CIA_ANON_KEY       - Repo C anonymous API key
+ *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
+ *
+ * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
  *
  * Run alongside openclaw gateway. On Railway, both run in same container.
  */
@@ -50,6 +55,11 @@ const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 1
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
 const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 
+// Repo C env vars for SMS sending
+const CIA_URL = (process.env.CIA_URL || '').replace(/\/+$/, '');
+const CIA_ANON_KEY = (process.env.CIA_ANON_KEY || '').trim();
+const EXECUTOR_SECRET = (process.env.EXECUTOR_SECRET || '').trim();
+
 if (!AGENT_EDGE_KEY) {
   console.error('Missing AGENT_HOSTED_EDGE_KEY. Set in Railway env or ~/.openclaw/.env');
   process.exit(1);
@@ -62,6 +72,9 @@ if (checkOnly) {
   console.log('  AGENT_HOSTED_EDGE_KEY:', AGENT_EDGE_KEY ? '***set***' : '(missing)');
   console.log('  GATEWAY_HTTP_URL:', GATEWAY_HTTP_URL);
   console.log('  WORKER_ID:', WORKER_ID);
+  console.log('  CIA_URL:', CIA_URL || '(missing)');
+  console.log('  CIA_ANON_KEY:', CIA_ANON_KEY ? '***set***' : '(missing)');
+  console.log('  EXECUTOR_SECRET:', EXECUTOR_SECRET ? '***set***' : '(missing)');
   (async () => {
     try {
       const job = await claimNextJob();
@@ -147,6 +160,38 @@ async function postWake(text) {
   return res;
 }
 
+/** Send SMS reply via Repo C internal-execute endpoint. */
+async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
+  if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
+    throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+  }
+
+  const res = await fetch(`${CIA_URL}/functions/v1/internal-execute`, {
+    method: 'POST',
+    headers: {
+      'apikey': CIA_ANON_KEY,
+      'Authorization': `Bearer ${EXECUTOR_SECRET}`,
+      'X-Tenant-Id': tenantId,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      service: 'twilio',
+      action: 'messages.send',
+      params: {
+        to: toNumber,
+        body: messageText,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Repo C SMS send ${res.status}: ${t.slice(0, 200)}`);
+  }
+
+  return res;
+}
+
 /**
  * Process one Echelon job: send to agent via chat, get response, ack.
  * Uses chat.send + chat.history to capture the agent's reply for response_text.
@@ -159,7 +204,21 @@ async function handleJob(job) {
     throw new Error('Job has no text');
   }
 
-  const sessionKey = `agent:main:echelon:${tenantId}`;
+  // Detect SMS jobs and use SMS-specific session keys
+  const metadata = job.metadata || {};
+  const isSmsJob = String(metadata.source || '').trim() === 'sms';
+
+  let sessionKey;
+  if (isSmsJob) {
+    const fromNumber = String(metadata.from_number || '').trim();
+    if (!fromNumber) {
+      throw new Error('SMS job missing metadata.from_number');
+    }
+    sessionKey = `agent:main:sms:${tenantId}:${fromNumber}`;
+  } else {
+    sessionKey = `agent:main:echelon:${tenantId}`;
+  }
+
   const idempotencyKey = jobId;
 
   // Baseline: last assistant message timestamp before we send
@@ -213,6 +272,34 @@ async function runLoop() {
 
       try {
         const responseText = await handleJob(job);
+
+        // For SMS jobs, send reply via Repo C before acking
+        const metadata = job.metadata || {};
+        const isSmsJob = String(metadata.source || '').trim() === 'sms';
+
+        if (isSmsJob) {
+          const fromNumber = String(metadata.from_number || '').trim();
+          if (!fromNumber) {
+            throw new Error('SMS job missing metadata.from_number');
+          }
+
+          if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
+            throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+          }
+
+          try {
+            await sendSmsViaRepoC({
+              tenantId: job.tenant_id || job.tenantId || 'default',
+              toNumber: fromNumber,
+              messageText: responseText,
+            });
+            console.log('[echelon-worker] job', job.id, '→ SMS sent to', fromNumber);
+          } catch (smsErr) {
+            // SMS send failed - ack as failed but preserve response_text
+            throw new Error(`SMS send failed: ${smsErr.message}`);
+          }
+        }
+
         await ackJob(job.id, 'done', { responseText });
         console.log('[echelon-worker] job', job.id, '→ done');
       } catch (err) {
