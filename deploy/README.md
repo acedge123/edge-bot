@@ -42,7 +42,9 @@ railway link   # or create new project
 railway up
 ```
 
-Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc.
+Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc. For agent git clone/pull of private repos, add `GITHUB_TOKEN` (see **docs/GITHUB_ACCESS_FOR_AGENT.md**).
+
+**Note:** A redeploy replaces the container; runtime-written files (memory, cloned repos) are lost unless you use a Railway volume or external store (e.g. Agent Vault). See **deploy/RAILWAY_SKILLS_AND_LEARNINGS.md**.
 
 ## Required Env Vars (Railway)
 
@@ -55,7 +57,7 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
 | `OPENCLAW_HOOK_TOKEN` | **Must differ from** `OPENCLAW_GATEWAY_TOKEN`. Used for /hooks/wake. Generate: `openssl rand -hex 24` |
-| `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://yczomejrvihbmydyraqg.supabase.co/functions/v1`) |
+| `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://your-project.supabase.co/functions/v1`) |
 
 **Echelon Hosted Agent:** The worker (`echelon-agent-worker.mjs`) runs alongside the gateway and polls `agent-next`, sends jobs to the agent via chat, and acks via `agent-ack`. Requires `AGENT_HOSTED_EDGE_KEY` (same as Echelon backend secrets).
 

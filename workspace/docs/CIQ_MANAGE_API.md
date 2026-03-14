@@ -1,6 +1,6 @@
 # CIQ Manage API (Supabase Edge Function)
 
-Endpoint: `POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage`
+Endpoint: `POST https://your-project.supabase.co/functions/v1/manage`
 
 Auth: header `X-API-Key: $platform_key` — use env var `platform_key` (platform/tenant API key from signup/onboarding, e.g. `ciq_xxx`). The manage router resolves tenant and fetches the CIQ credential server-side. Never pass the raw CreatorIQ API key.
 

@@ -7,8 +7,17 @@
 ## Email and calendar – where to look (critical)
 
 - **Email:** Use only the **secure-gmail** skill in **this workspace**: `workspace/skills/secure-gmail/`. Read `workspace/skills/secure-gmail/SKILL.md` and use that skill (Composio/Gmail API). Do **not** use `gcalcli`. Do **not** read or use `/opt/homebrew/lib/node_modules/openclaw/skills/gmail/` or any path under that – your skills are in the **workspace** (this repo), not in the bundled OpenClaw install.
-- **Skills location:** All your skills are under the workspace: `workspace/skills/<skill-name>/`. When a tool says "no such file" for a path like `.../openclaw/skills/gmail/`, you are looking in the wrong place; use `workspace/skills/secure-gmail/` instead.
+- **Skills location:** All your skills are under the workspace: `workspace/skills/<skill-name>/`. When a tool says "no such file" for a path like `.../openclaw/skills/gmail/`, you are looking in the wrong place; use `workspace/skills/secure-gmail/` instead. If the agent reports *no workspace-local skills*, the OpenClaw workspace dir (e.g. `/root/.openclaw/workspace`) may be missing the `skills/` tree — see **docs/WORKSPACE_LOCAL_SKILLS.md** for how to copy or symlink this repo’s `workspace/skills/` into that directory.
 - **Do not run the jobs worker.** The script `workspace/scripts/jobs-worker.mjs` is a **daemon** the user runs separately. You never run it to "get email" or "pull jobs". To get email, use the **secure-gmail** skill only.
+
+---
+
+## Slack-origin conversations (worker-owned delivery)
+
+When the conversation is from **Slack** (Echelon Slack channel), your reply is delivered by the **worker** via the slack-reply edge function — not by you calling the Slack skill/tool.
+
+- **Do not** use the Slack skill or `message.send` (or any slack send action) to deliver your response in this context. The worker will post your reply to Slack using the job metadata (channel, thread).
+- If your session key starts with `agent:main:slack:`, you are in a Slack-origin conversation: respond with plain text only; do not invoke the Slack tool for delivery. You may still use the Slack skill for other actions (e.g. react, read, pin) if needed, but **never for sending the main reply**.
 
 ---
 

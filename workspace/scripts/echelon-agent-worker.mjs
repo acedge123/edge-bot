@@ -15,6 +15,10 @@
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
  *
  * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
+ * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
+ *
+ * Image attachments: Jobs with metadata.attachments (image URLs) use POST /v1/chat/completions on the gateway
+ * with multimodal content (text + image_url) instead of chat.send.
  *
  * Run alongside openclaw gateway. On Railway, both run in same container.
  */
@@ -51,6 +55,7 @@ const GATEWAY_HTTP_URL = (process.env.GATEWAY_HTTP_URL || `http://127.0.0.1:${PO
 // Ensure openclaw gateway call connects to correct port (Railway injects PORT)
 process.env.OPENCLAW_GATEWAY_PORT = process.env.OPENCLAW_GATEWAY_PORT || PORT;
 const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '').trim();
+const GATEWAY_TOKEN = (process.env.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_HOOK_TOKEN || '').trim();
 const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 10));
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
 const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
@@ -127,6 +132,48 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
   }
 }
 
+/**
+ * Call gateway POST /v1/chat/completions with multimodal content (text + image URLs).
+ * Used when job has metadata.attachments; otherwise we use chat.send + chat.history.
+ * OpenAI-style: user message content is an array of { type: "text", text } and { type: "image_url", image_url: { url } }.
+ */
+async function gatewayChatCompletionsWithImages({ requestText, attachments }) {
+  const content = [{ type: 'text', text: requestText }];
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    for (const att of attachments.slice(0, 4)) {
+      if (att?.type === 'image' && att?.url) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: String(att.url) },
+        });
+      }
+    }
+  }
+
+  const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GATEWAY_TOKEN}`,
+    },
+    body: JSON.stringify({
+      model: 'openclaw:main',
+      messages: [{ role: 'user', content }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`/v1/chat/completions ${res.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const msg = data?.choices?.[0]?.message;
+  const text = msg?.content;
+  const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
+  return responseText;
+}
+
 /** OpenClaw gateway call (chat.send, chat.history). */
 async function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
   const { stdout } = await execFileAsync(OPENCLAW_BIN, [
@@ -199,14 +246,26 @@ async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
 async function handleJob(job) {
   const jobId = String(job.id || '');
   const tenantId = String(job.tenant_id || job.tenantId || 'default');
-  const message = String(job.text || '').trim();
+  const message = String(job.request_text || job.text || '').trim();
   if (!message) {
     throw new Error('Job has no text');
   }
 
-  // Detect SMS jobs and use SMS-specific session keys
-  const metadata = job.metadata || {};
-  const isSmsJob = String(metadata.source || '').trim() === 'sms';
+  // Normalize metadata (Postgres may return JSON as string)
+  let metadata = job.metadata;
+  if (typeof metadata === 'string') {
+    try {
+      metadata = JSON.parse(metadata);
+    } catch (_) {
+      metadata = {};
+    }
+  }
+  metadata = metadata || {};
+
+  // Detect job source and use appropriate session keys
+  const source = String(metadata.source || '').trim();
+  const isSmsJob = source === 'sms';
+  const isSlackJob = source === 'slack';
 
   let sessionKey;
   if (isSmsJob) {
@@ -215,13 +274,26 @@ async function handleJob(job) {
       throw new Error('SMS job missing metadata.from_number');
     }
     sessionKey = `agent:main:sms:${tenantId}:${fromNumber}`;
+  } else if (isSlackJob) {
+    const slackUser = String(metadata.slack_user || '').trim();
+    if (!slackUser) {
+      throw new Error('Slack job missing metadata.slack_user');
+    }
+    sessionKey = `agent:main:slack:${tenantId}:${slackUser}`;
   } else {
     sessionKey = `agent:main:echelon:${tenantId}`;
   }
 
   const idempotencyKey = jobId;
 
-  // Baseline: last assistant message timestamp before we send
+  // When job has image attachments, use /v1/chat/completions with multimodal content instead of chat.send
+  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
+  if (attachments.length > 0) {
+    console.log('[echelon-worker] job', jobId, 'using /v1/chat/completions with', attachments.length, 'attachment(s)');
+    return gatewayChatCompletionsWithImages({ requestText: message, attachments });
+  }
+
+  // Text-only: existing chat.send + chat.history flow
   let baselineLastTs = 0;
   try {
     const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
@@ -231,7 +303,6 @@ async function handleJob(job) {
     // No history yet
   }
 
-  // Send message to agent
   await gatewayCall('chat.send', {
     sessionKey,
     message,
@@ -240,7 +311,6 @@ async function handleJob(job) {
     timeoutMs: 15 * 60 * 1000,
   }, { timeoutMs: 70_000 });
 
-  // Poll for new assistant response (up to 5 min)
   const deadline = Date.now() + (5 * 60 * 1000);
   while (Date.now() < deadline) {
     const hist = await gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 });
@@ -273,9 +343,22 @@ async function runLoop() {
       try {
         const responseText = await handleJob(job);
 
+        // Normalize metadata (Postgres/Supabase may return JSON columns as string)
+        let metadata = job.metadata;
+        if (typeof metadata === 'string') {
+          try {
+            metadata = JSON.parse(metadata);
+          } catch (_) {
+            metadata = {};
+          }
+        }
+        metadata = metadata || {};
+
+        const source = String(metadata.source || '').trim();
+        console.log('[echelon-worker] job', job.id, 'source=%s slack_channel=%s', source || '(none)', metadata.slack_channel || '(none)');
+
         // For SMS jobs, send reply via Repo C before acking
-        const metadata = job.metadata || {};
-        const isSmsJob = String(metadata.source || '').trim() === 'sms';
+        const isSmsJob = source === 'sms';
 
         if (isSmsJob) {
           const fromNumber = String(metadata.from_number || '').trim();
@@ -297,6 +380,42 @@ async function runLoop() {
           } catch (smsErr) {
             // SMS send failed - ack as failed but preserve response_text
             throw new Error(`SMS send failed: ${smsErr.message}`);
+          }
+        }
+
+        const isSlackJob = source === 'slack';
+        if (isSlackJob) {
+          const slackChannel = metadata.slack_channel;
+          const slackThreadTs = metadata.slack_thread_ts;
+          console.log('[echelon-worker] job', job.id, 'Slack job → posting to slack-reply channel=%s thread_ts=%s', slackChannel || '(missing)', slackThreadTs || '(none)');
+          if (slackChannel) {
+            const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
+            const slackReplyBody = {
+              job_id: job.id,
+              text: responseText,
+              slack_channel: slackChannel,
+              slack_thread_ts: slackThreadTs || undefined,
+            };
+            try {
+              const replyRes = await fetch(slackReplyUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+                },
+                body: JSON.stringify(slackReplyBody),
+              });
+              const replyBody = await replyRes.text();
+              if (!replyRes.ok) {
+                console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
+                throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
+              }
+              console.log('[echelon-worker] job', job.id, '→ Slack reply sent (status %s)', replyRes.status);
+            } catch (slackErr) {
+              throw new Error(`Slack reply failed: ${slackErr.message}`);
+            }
+          } else {
+            console.warn('[echelon-worker] job', job.id, 'Slack job missing slack_channel, skipping reply');
           }
         }
 

@@ -11,8 +11,8 @@ FROM node:22-slim
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
 
-# Install git, ca-certificates, jq (git for npm deps, jq for config override)
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq \
+# Install git, ca-certificates, jq, curl, python3 (agent tools may run curl/python)
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq curl python3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Use HTTPS for git (avoids ssh for public deps like libsignal-node)
@@ -35,15 +35,20 @@ RUN if [ -d /tmp/deploy/runtime ] && [ -n "$(ls -A /tmp/deploy/runtime 2>/dev/nu
 # Force OpenAI gpt-5.2 in image (overrides any packaged/template config)
 # Use agents.defaults only (legacy agent.* key removed)
 RUN if [ -f /app/.openclaw/openclaw.json ]; then \
-      jq 'del(.agent) | .agents.defaults.model.primary = "openai/gpt-5.2" | .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] | .hooks.enabled = true | .hooks.token = "${OPENCLAW_HOOK_TOKEN}"' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
+      jq 'del(.agent) | .agents.defaults.model.primary = "openai/gpt-5.2" | .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] | .agents.defaults.workspace = "/app/.openclaw/workspace" | .hooks.enabled = true | .hooks.token = "${OPENCLAW_HOOK_TOKEN}" | .gateway.controlUi.allowedOrigins = ["https://edge-bot-production.up.railway.app"] | del(.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback)' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
     else \
-      echo '{"agents":{"defaults":{"model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"}}' > /app/.openclaw/openclaw.json; \
+      echo '{"agents":{"defaults":{"workspace":"/app/.openclaw/workspace","model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"},"gateway":{"controlUi":{"allowedOrigins":["https://edge-bot-production.up.railway.app"]}}}' > /app/.openclaw/openclaw.json; \
     fi
 
 # Copy workspace (AGENTS.md, scripts, skills, etc.)
 # workspace/skills has highest precedence per OpenClaw; must be present
 COPY workspace/ /app/.openclaw/workspace/
 RUN ls -la /app/.openclaw/workspace/ && ls -la /app/.openclaw/workspace/skills/ 2>/dev/null || echo "WARN: workspace/skills missing"
+
+# Volume-safe workspace: keep a baked copy to seed into a mounted volume
+RUN rm -rf /app/.openclaw/workspace.baked && cp -a /app/.openclaw/workspace /app/.openclaw/workspace.baked
+COPY deploy/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 WORKDIR /app
 
@@ -52,4 +57,4 @@ EXPOSE 18789
 # Gateway + Echelon worker: gateway in background, worker polls agent-next
 # Bind to Railway port and all interfaces (0.0.0.0 required for Railway)
 # OPENCLAW_GATEWAY_PORT so gateway call connects to correct port
-CMD ["sh", "-c", "export PORT=${PORT:-18789} OPENCLAW_GATEWAY_PORT=$PORT && openclaw gateway --host 0.0.0.0 --port $PORT --allow-unconfigured & sleep 5 && node /app/.openclaw/workspace/scripts/echelon-agent-worker.mjs & wait"]
+CMD ["/app/entrypoint.sh"]

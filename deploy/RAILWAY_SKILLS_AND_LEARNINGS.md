@@ -11,6 +11,7 @@ Add these to Railway so the agent can access external services:
 | `AGENT_VAULT_URL` | Supabase Edge Function URL for agent-vault (e.g. `https://<project>.supabase.co/functions/v1/agent-vault`) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault (learnings, contacts, tasks). Same value as in Supabase secrets. |
 | `platform_key` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
+| `GITHUB_TOKEN` | Optional. GitHub PAT (or machine-user token) with read access to repos the agent should clone/pull. See **docs/GITHUB_ACCESS_FOR_AGENT.md**. |
 
 **Note:** `AGENT_EDGE_KEY` is for Agent Vault (learnings). `AGENT_HOSTED_EDGE_KEY` is for Echelon (agent-next/agent-ack). They can be different.
 
@@ -30,7 +31,14 @@ Your learnings about "how to use CIQ Automations" are likely in **Supabase `agen
 
 No need to copy files — learnings are already in Supabase.
 
-## 4. Memory Files (Local Only)
+## 4. Redeploys wipe the filesystem (important)
+
+**By default, a Railway redeploy replaces the container.** The new container starts from the image — any files the agent wrote at runtime (e.g. `MEMORY.md`, `memory/*`, cloned `repos/`, workspace edits) are **gone**. There is no persistent disk unless you attach a **Railway volume** to a path (e.g. `/app/.openclaw/workspace` or `/app/.openclaw`).
+
+- **Ephemeral (default):** Agent can write files and clone repos; they exist until the next redeploy (or container restart, depending on Railway’s behavior).
+- **Durable memory:** Use **Agent Vault** (Supabase) so learnings persist regardless of redeploys, or attach a Railway volume to the workspace path if you want on-disk memory to survive redeploys.
+
+## 5. Memory Files (Local Only)
 
 `memory/` and `workspace/memory/` are gitignored. They don't deploy.
 
@@ -40,7 +48,7 @@ No need to copy files — learnings are already in Supabase.
 - **B) Curate into docs** — Copy important learnings into `workspace/docs/` (e.g. `workspace/docs/CIQ_LEARNINGS.md`) and commit. The agent can read these.
 - **C) package-runtime.sh** — Run `./deploy/package-runtime.sh` to create `deploy/runtime/` from `~/.openclaw/` (includes skills, memory, identity). Then `deploy/runtime/` would need to be committed — but it's gitignored because it can contain secrets. **Not recommended** for Railway Git deploy.
 
-## 5. Quick Checklist
+## 6. Quick Checklist
 
 | Item | Action |
 |------|--------|
@@ -51,6 +59,16 @@ No need to copy files — learnings are already in Supabase.
 | Skills | Already in repo — deploy automatically |
 | CIQ how-to | Add `workspace/docs/CIQ_LEARNINGS.md` if you want extra context |
 
-## 6. Verify
+## 7. Verify
 
 After deploy, send a message like "Find a creator who likes fitness and add to a list" in the Hosted Agent UI. If the agent can query learnings and use CIQ, it should work. If not, check Railway logs for missing env vars or auth errors.
+
+## 8. Troubleshooting common log messages
+
+| Log | Cause | What to do |
+|-----|--------|------------|
+| **Gateway binding to non-loopback** | Expected on Railway (must bind 0.0.0.0). | Ignore if auth (e.g. token) is configured. |
+| **Timeout waiting for agent response** | Agent took >5 min (e.g. tool failures, slow model, or blocked on missing curl/python). | Ensure Docker image has `curl` and `python3` (see Dockerfile). If the agent is trying to read paths like `repos/api-docs-template/…`, those repos may not exist in the container — agent should use workspace paths only. |
+| **read failed: … /app/.opencl/workspace/…** | Typo: path uses `.opencl` instead of `.openclaw`. | Fix any skill or memory that references `.opencl`. Workspace path in the container is `/app/.openclaw/workspace`. |
+| **curl: not found** / **python3: not found** | Agent ran a tool that uses curl or Python; base image didn’t include them. | The Dockerfile now installs `curl` and `python3`. Redeploy so the new image is used. |
+| **agent-next 502** | Echelon (Supabase) edge function returned Bad Gateway. | Transient or Echelon-side. Retry; check Supabase function logs and health. |

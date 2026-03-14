@@ -5,6 +5,8 @@ description: Use when you need to control Slack from Clawdbot via the slack tool
 
 # Slack Actions
 
+**Do not use this skill to deliver your reply when the conversation is from Slack (Echelon Slack channel).** For sessions with key `agent:main:slack:*`, the worker delivers your response to Slack; do not call send/message.send — it will fail or double-send. Use this skill for reactions, pins, read, member info, etc., but not for sending the main reply in Slack-origin threads.
+
 ## Overview
 
 Use `slack` to react, manage pins, send/edit/delete messages, and fetch member info. The tool uses the bot token configured for Clawdbot.

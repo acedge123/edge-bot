@@ -34,7 +34,7 @@ Use the tenant platform key in the `X-API-Key` header against the `/functions/v1
 ## Call Shape (agent contract)
 
 ```bash
-curl -X POST https://rlqedbmolbyybzgaisot.supabase.co/functions/v1/manage \
+curl -X POST https://your-project.supabase.co/functions/v1/manage \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $platform_key" \
   -d '{
