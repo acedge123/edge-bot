@@ -18,6 +18,7 @@ When the conversation is from **Slack** (Echelon Slack channel), your reply is d
 
 - **Do not** use the Slack skill or `message.send` (or any slack send action) to deliver your response in this context. The worker will post your reply to Slack using the job metadata (channel, thread).
 - If your session key starts with `agent:main:slack:`, you are in a Slack-origin conversation: respond with plain text only; do not invoke the Slack tool for delivery. You may still use the Slack skill for other actions (e.g. react, read, pin) if needed, but **never for sending the main reply**.
+- **"Say hi to @X" / "message @X" / "tell @X"**: When the user asks you to greet or message someone (e.g. "say hi to @jamie"), **do not** use the Slack skill to send a DM or a separate message. Instead, **reply in the current thread** with your message and include the @mention (e.g. "Hi @jamie!"). The worker will post that reply in the same channel/thread. Using the Slack send tool for a user target often fails (e.g. "Unknown target"); replying in-thread with an @mention avoids that and keeps the reply in channel.
 
 ---
 

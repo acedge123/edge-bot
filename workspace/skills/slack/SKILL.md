@@ -7,6 +7,8 @@ description: Use when you need to control Slack from Clawdbot via the slack tool
 
 **Do not use this skill to deliver your reply when the conversation is from Slack (Echelon Slack channel).** For sessions with key `agent:main:slack:*`, the worker delivers your response to Slack; do not call send/message.send — it will fail or double-send. Use this skill for reactions, pins, read, member info, etc., but not for sending the main reply in Slack-origin threads.
 
+**"Say hi to @X" / "message @X"**: When the user asks you to greet or message someone (e.g. "say hi to @jamie"), do **not** use sendMessage or any send action — the Slack adapter often rejects user targets (e.g. "Unknown target … for slack"). Instead, reply in-thread with your message including the @mention (e.g. "Hi @jamie!"). The worker will post that reply in the same channel/thread. That keeps the reply in channel and avoids the OpenClaw Slack target-resolution path.
+
 ## Overview
 
 Use `slack` to react, manage pins, send/edit/delete messages, and fetch member info. The tool uses the bot token configured for Clawdbot.
