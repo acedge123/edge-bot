@@ -8,6 +8,7 @@
 
 - **Email:** Use only the **secure-gmail** skill in **this workspace**: `workspace/skills/secure-gmail/`. Read `workspace/skills/secure-gmail/SKILL.md` and use that skill (Composio/Gmail API). Do **not** use `gcalcli`. Do **not** read or use `/opt/homebrew/lib/node_modules/openclaw/skills/gmail/` or any path under that – your skills are in the **workspace** (this repo), not in the bundled OpenClaw install.
 - **Skills location:** All your skills are under the workspace: `workspace/skills/<skill-name>/`. When a tool says "no such file" for a path like `.../openclaw/skills/gmail/`, you are looking in the wrong place; use `workspace/skills/secure-gmail/` instead. If the agent reports *no workspace-local skills*, the OpenClaw workspace dir (e.g. `/root/.openclaw/workspace`) may be missing the `skills/` tree — see **docs/WORKSPACE_LOCAL_SKILLS.md** for how to copy or symlink this repo’s `workspace/skills/` into that directory.
+- **Governance Hub runtime:** For heartbeat, authorize, audit-ingest, policy-propose, or tenant rules (e.g. onsite-affiliate, mom-walk-connect), use the **governance-runtime** skill: `workspace/skills/governance-runtime/`. The skill is named **governance-runtime** (not "access governance"); it lives in `workspace/skills/governance-runtime/SKILL.md`.
 - **Do not run the jobs worker.** The script `workspace/scripts/jobs-worker.mjs` is a **daemon** the user runs separately. You never run it to "get email" or "pull jobs". To get email, use the **secure-gmail** skill only.
 
 ---

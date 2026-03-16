@@ -6,15 +6,16 @@ WORKSPACE_DIR="${OPENCLAW_STATE_DIR}/workspace"
 BAKED_WORKSPACE_DIR="${OPENCLAW_STATE_DIR}/workspace.baked"
 
 # If the workspace path is backed by a volume, it can mask the image's workspace.
-# Seed workspace when missing; always sync scripts/ from image so redeploys get latest worker.
+# Seed workspace when missing; always sync scripts/ and skills/ from image so redeploys get latest worker and skills.
 if [ ! -f "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" ]; then
   echo "[entrypoint] workspace scripts missing; seeding workspace into mounted volume"
   mkdir -p "${WORKSPACE_DIR}"
   cp -a "${BAKED_WORKSPACE_DIR}/." "${WORKSPACE_DIR}/"
 else
-  echo "[entrypoint] syncing workspace/scripts from image (so worker is always current)"
-  mkdir -p "${WORKSPACE_DIR}/scripts"
+  echo "[entrypoint] syncing workspace/scripts and workspace/skills from image (so worker and skills are current)"
+  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills"
   cp -a "${BAKED_WORKSPACE_DIR}/scripts/." "${WORKSPACE_DIR}/scripts/"
+  cp -a "${BAKED_WORKSPACE_DIR}/skills/." "${WORKSPACE_DIR}/skills/"
 fi
 
 export PORT="${PORT:-18789}"
