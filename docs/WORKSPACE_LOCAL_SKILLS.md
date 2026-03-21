@@ -13,10 +13,12 @@ In the **edge-bot** repo, all workspace-local skills are under:
 Each skill has a `SKILL.md` and supporting files, for example:
 
 - `workspace/skills/secure-gmail/` — Gmail via Composio
+- `workspace/skills/agent-learnings/` — Agent Vault learnings read/write
 - `workspace/skills/ciq-manage-api/` — CIQ Manage API
 - `workspace/skills/ciq-automations/` — CIQ Automations
 - `workspace/skills/agentic-control-plane/` — ACP kit
-- `workspace/skills/cursor-agent/`, `workspace/skills/brave-search/`, `workspace/skills/slack/`, `workspace/skills/supabase/`, etc.
+- `workspace/skills/governance-runtime/` — Governance Hub runtime (heartbeat, authorize, audit-ingest, policy-propose)
+- `workspace/skills/cursor-agent/`, `workspace/skills/brave-search/`, `workspace/skills/slack/`, `workspace/skills/supabase/`, `workspace/skills/youtrack/`, etc.
 
 So the path OpenClaw needs to see is: **`<workspace-root>/skills/`** with those directories and their `SKILL.md` files.
 
@@ -84,14 +86,20 @@ When you build the image with this repo’s **Dockerfile**, the repo’s **`work
 
 If you were checking **`/root/.openclaw/workspace`**, that is a different path (e.g. host or another install). In the Docker image produced by this repo, use **`/app/.openclaw/workspace/`** and you should see **`skills/`** there.
 
+**Note:** The workspace directory inside the container is **not** a git repo — it is a copy of the repo’s `workspace/` tree (from the image and, when a volume is used, synced from the image’s baked copy by the entrypoint). So “in the repo” (edge-bot on GitHub) and “in the container” are the same **content** but the container’s copy is just the filesystem; `git status` there will show nothing tracked. The **edge-bot** repo owns and tracks `workspace/skills/`; the container gets that content via build + entrypoint sync.
+
+## New skills and discovery: restart required
+
+OpenClaw loads workspace skills **at gateway/agent startup**. There is no hot-reload of skills in this setup. If you add a new skill (e.g. **governance-runtime**) and the directory is present at `/app/.openclaw/workspace/skills/governance-runtime/` but the agent still doesn’t list it, **restart the gateway** (or redeploy the container) so OpenClaw rescans `workspace/skills/`. After restart, the agent should see the new skill.
+
 ## Verify
 
 - List workspace contents:  
   `ls -la /root/.openclaw/workspace/`  
   You should see a **`skills/`** directory.
 - List skills:  
-  `ls -la /root/.openclaw/workspace/skills/`  
-  You should see subdirs like `secure-gmail`, `ciq-manage-api`, etc., each with a **`SKILL.md`**.
+  `ls -la /app/.openclaw/workspace/skills/` (container) or `ls -la /root/.openclaw/workspace/skills/` (local).  
+  You should see subdirs like `secure-gmail`, `ciq-manage-api`, `governance-runtime`, etc., each with a **`SKILL.md`**.
 - If OpenClaw provides a CLI:  
   `openclaw skills list`  
   (or similar) and check that workspace skills appear.
