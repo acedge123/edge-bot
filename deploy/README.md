@@ -58,6 +58,7 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
 | `OPENCLAW_HOOK_TOKEN` | **Must differ from** `OPENCLAW_GATEWAY_TOKEN`. Used for /hooks/wake. Generate: `openssl rand -hex 24` |
 | `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://your-project.supabase.co/functions/v1`) |
+| `GOOGLE_MAPS_API_KEY` | Optional. Google **Places API (New)** for venue search/details (sponsors enrichment). Enable Places API (New) in Google Cloud. See `workspace/skills/google-places/SKILL.md`. |
 
 **Echelon Hosted Agent:** The worker (`echelon-agent-worker.mjs`) runs alongside the gateway and polls `agent-next`, sends jobs to the agent via chat, and acks via `agent-ack`. Requires `AGENT_HOSTED_EDGE_KEY` (same as Echelon backend secrets).
 

@@ -12,6 +12,7 @@ Add these to Railway so the agent can access external services:
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault (learnings, contacts, tasks). Same value as in Supabase secrets. |
 | `platform_key` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
 | `GITHUB_TOKEN` | Optional. GitHub PAT (or machine-user token) with read access to repos the agent should clone/pull. See **docs/GITHUB_ACCESS_FOR_AGENT.md**. |
+| `GOOGLE_MAPS_API_KEY` | Optional. **Places API (New)** for **`google-places`** / **`sponsors-database`** skills (venue search, sponsor enrichment). |
 
 **Note:** `AGENT_EDGE_KEY` is for Agent Vault (learnings). `AGENT_HOSTED_EDGE_KEY` is for Echelon (agent-next/agent-ack). They can be different.
 

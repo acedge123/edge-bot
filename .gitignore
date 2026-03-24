@@ -55,5 +55,9 @@ Thumbs.db
 # Local clones for audits / scratch (do not commit)
 external/
 
+# Local sponsors DB (may contain PII; use sponsors.schema.example.json in repo)
+workspace/data/sponsors/sponsors.json
+workspace/data/sponsors/sponsors.backup.json
+
 # Deploy: packaged runtime (run deploy/package-runtime.sh before build)
 deploy/runtime/

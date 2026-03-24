@@ -18,7 +18,7 @@ Each skill has a `SKILL.md` and supporting files, for example:
 - `workspace/skills/ciq-automations/` — CIQ Automations
 - `workspace/skills/agentic-control-plane/` — ACP kit
 - `workspace/skills/governance-runtime/` — Governance Hub runtime (heartbeat, authorize, audit-ingest, policy-propose)
-- `workspace/skills/cursor-agent/`, `workspace/skills/brave-search/`, `workspace/skills/slack/`, `workspace/skills/supabase/`, `workspace/skills/youtrack/`, `workspace/skills/physics-researcher/` — 3D Ising CFT bootstrap first-pass extraction (sub-agent), etc.
+- `workspace/skills/cursor-agent/`, `workspace/skills/brave-search/`, `workspace/skills/google-places/`, `workspace/skills/sponsors-database/`, `workspace/skills/slack/`, `workspace/skills/supabase/`, `workspace/skills/youtrack/`, `workspace/skills/physics-researcher/` — 3D Ising CFT bootstrap first-pass extraction (sub-agent), etc.
 
 So the path OpenClaw needs to see is: **`<workspace-root>/skills/`** with those directories and their `SKILL.md` files.
 
