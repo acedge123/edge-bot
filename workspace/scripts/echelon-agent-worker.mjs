@@ -154,16 +154,37 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments }) {
   let sawFile = false;
 
   for (const att of picked) {
-    if (att?.type === 'image' && att?.url) {
+    const url = att?.url ? String(att.url) : '';
+
+    // Echelon historically tagged all uploads as type "image"; CSV public URLs still end in .csv.
+    if (att?.type === 'image' && url && looksLikeCsv(att)) {
+      sawFile = true;
+      const fileText = await downloadAttachmentText(att, { maxBytes: maxTextBytes, maxChars: maxTextChars });
+      const name = String(att.filename || att.name || '').trim() || 'attachment';
+      if (fileText) {
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached file: ${name}]\n${fileText}\n`,
+        });
+      } else {
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached file: ${name}]\n(Unable to include contents; treat as attached file.)\n`,
+        });
+      }
+      continue;
+    }
+
+    if (att?.type === 'image' && url) {
       sawImage = true;
       content.push({
         type: 'image_url',
-        image_url: { url: String(att.url) },
+        image_url: { url },
       });
       continue;
     }
 
-    if (att?.type === 'file' && att?.url) {
+    if (att?.type === 'file' && url) {
       sawFile = true;
       const fileText = await downloadAttachmentText(att, { maxBytes: maxTextBytes, maxChars: maxTextChars });
       if (fileText) {
@@ -219,6 +240,11 @@ function looksLikeCsv(att) {
   const mime = String(att?.mime_type || att?.mimeType || '').toLowerCase();
   if (filename.endsWith('.csv')) return true;
   if (mime.includes('text/csv')) return true;
+  const url = String(att?.url || '').trim();
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    if (path.endsWith('.csv')) return true;
+  } catch (_) {}
   return false;
 }
 
