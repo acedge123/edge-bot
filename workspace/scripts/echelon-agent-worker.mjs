@@ -13,6 +13,7 @@
  *   CIA_URL            - Repo C base URL for SMS sending (e.g. https://<project>.supabase.co)
  *   CIA_ANON_KEY       - Repo C anonymous API key
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
+ *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *
  * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
  * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
@@ -24,6 +25,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
+import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
@@ -59,6 +61,7 @@ const GATEWAY_TOKEN = (process.env.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLA
 const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 10));
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
 const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
+const WORKSPACE_ROOT = (process.env.OPENCLAW_WORKSPACE || '/app/.openclaw/workspace').replace(/\/+$/, '');
 
 // Repo C env vars for SMS sending
 const CIA_URL = (process.env.CIA_URL || '').replace(/\/+$/, '');
@@ -140,38 +143,63 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
  * - image: content includes { type: "image_url", image_url: { url } }
  * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
-async function gatewayChatCompletionsWithImages({ requestText, attachments }) {
+async function gatewayChatCompletionsWithImages({ requestText, attachments, jobId = '' }) {
   const content = [{ type: 'text', text: requestText }];
 
   const atts = Array.isArray(attachments) ? attachments : [];
   const maxAtts = 4;
-  const maxTextBytes = 250_000; // protect worker and gateway payload sizes
   const maxTextChars = 80_000;
+  const maxCsvCharsOnDisk = 2_000_000;
 
   const picked = atts.slice(0, maxAtts);
+  const jid = String(jobId || '').trim() || `noid-${Date.now()}`;
 
   let sawImage = false;
   let sawFile = false;
+  let csvSerial = 0;
 
   for (const att of picked) {
     const url = att?.url ? String(att.url) : '';
 
-    // Echelon historically tagged all uploads as type "image"; CSV public URLs still end in .csv.
-    if (att?.type === 'image' && url && looksLikeCsv(att)) {
+    // CSV: Echelon may tag uploads as "image"; URLs from storage usually end in .csv.
+    const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
+    if (csvEligible) {
       sawFile = true;
-      const fileText = await downloadAttachmentText(att, { maxBytes: maxTextBytes, maxChars: maxTextChars });
-      const name = String(att.filename || att.name || '').trim() || 'attachment';
-      if (fileText) {
+      const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
+      const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: maxCsvCharsOnDisk });
+      if (!fetched) {
         content.push({
           type: 'text',
-          text: `\n\n[Attached file: ${name}]\n${fileText}\n`,
+          text: `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL; check bucket is public and URL is reachable from the worker.)\n`,
         });
-      } else {
-        content.push({
-          type: 'text',
-          text: `\n\n[Attached file: ${name}]\n(Unable to include contents; treat as attached file.)\n`,
-        });
+        continue;
       }
+
+      const saved = await persistCsvToWorkspace({
+        jobId: jid,
+        serial: csvSerial++,
+        displayName: name,
+        utf8Text: fetched.text,
+        truncatedByCap: fetched.truncatedByCap,
+      });
+
+      const preview = fetched.text.slice(0, maxTextChars);
+      const previewTruncated = fetched.text.length > maxTextChars;
+      let block = `\n\n[Attached file: ${name}]\n`;
+      if (saved) {
+        block += `The full CSV is saved on the agent workspace at: ${saved.rel}\n`;
+        block += `Use your file-read tools on that path (relative to workspace root). Absolute path on server: ${saved.abs}\n`;
+      } else {
+        block += '(Worker could not write the file to the workspace disk; use the preview below only.)\n';
+      }
+      if (previewTruncated) {
+        block += `(Inline preview: first ${maxTextChars} characters only — read ${saved ? saved.rel : 'the source URL'} for the rest.)\n`;
+      }
+      if (fetched.truncatedByCap) {
+        block += `(WARNING: source exceeded ${maxCsvCharsOnDisk} characters; saved file and preview may be incomplete.)\n`;
+      }
+      block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
+      content.push({ type: 'text', text: block });
       continue;
     }
 
@@ -186,20 +214,11 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments }) {
 
     if (att?.type === 'file' && url) {
       sawFile = true;
-      const fileText = await downloadAttachmentText(att, { maxBytes: maxTextBytes, maxChars: maxTextChars });
-      if (fileText) {
-        const name = String(att.filename || att.name || '').trim() || 'attachment';
-        content.push({
-          type: 'text',
-          text: `\n\n[Attached file: ${name}]\n${fileText}\n`,
-        });
-      } else {
-        const name = String(att.filename || att.name || '').trim() || 'attachment';
-        content.push({
-          type: 'text',
-          text: `\n\n[Attached file: ${name}]\n(Unable to include contents; treat as attached file.)\n`,
-        });
-      }
+      const name = String(att.filename || att.name || '').trim() || 'attachment';
+      content.push({
+        type: 'text',
+        text: `\n\n[Attached file: ${name}]\n(Non-CSV file — contents not inlined.)\n`,
+      });
     }
   }
 
@@ -248,12 +267,19 @@ function looksLikeCsv(att) {
   return false;
 }
 
-async function downloadAttachmentText(att, { maxBytes, maxChars }) {
-  const url = String(att?.url || '').trim();
-  if (!url) return null;
+function sanitizeUploadBasename(name) {
+  const raw = String(name || 'attachment.csv').trim() || 'attachment.csv';
+  const tail = raw.split(/[/\\]/).pop() || 'attachment.csv';
+  const cleaned = tail.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^\.+/, '');
+  return (cleaned || 'attachment').slice(0, 100);
+}
 
-  // Only attempt to inline obvious text-ish attachments for now.
-  if (!looksLikeCsv(att)) return null;
+/**
+ * Download CSV body from attachment URL. Returns full text up to maxCharsOnDisk (for writing to workspace + preview).
+ */
+async function fetchCsvUtf8(att, { maxCharsOnDisk }) {
+  const url = String(att?.url || '').trim();
+  if (!url || !looksLikeCsv(att)) return null;
 
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 12_000);
@@ -261,15 +287,39 @@ async function downloadAttachmentText(att, { maxBytes, maxChars }) {
     const res = await fetch(url, { method: 'GET', signal: controller.signal });
     if (!res.ok) return null;
 
-    // Avoid massive downloads by enforcing a hard byte cap.
-    // We do this by reading as text but truncating aggressively.
     const raw = await res.text();
-    const truncated = raw.slice(0, maxChars);
-    return truncated;
+    if (raw.length > maxCharsOnDisk) {
+      return { text: raw.slice(0, maxCharsOnDisk), truncatedByCap: true };
+    }
+    return { text: raw, truncatedByCap: false };
   } catch (_) {
     return null;
   } finally {
     clearTimeout(t);
+  }
+}
+
+async function persistCsvToWorkspace({ jobId, serial, displayName, utf8Text, truncatedByCap }) {
+  try {
+    const base = sanitizeUploadBasename(displayName);
+    let fname = `${jobId}-${serial}-${base}`;
+    if (!/\.csv$/i.test(fname)) fname += '.csv';
+    const subdir = join(WORKSPACE_ROOT, 'tmp', 'echelon-uploads');
+    await mkdir(subdir, { recursive: true });
+    const abs = join(subdir, fname);
+    await writeFile(abs, utf8Text, 'utf8');
+    const rel = `tmp/echelon-uploads/${fname}`;
+    console.log(
+      '[echelon-worker] saved CSV to workspace',
+      rel,
+      'chars=',
+      utf8Text.length,
+      truncatedByCap ? '(truncated by cap)' : '',
+    );
+    return { rel, abs };
+  } catch (e) {
+    console.error('[echelon-worker] failed to write CSV to workspace:', e?.message || e);
+    return null;
   }
 }
 
@@ -389,7 +439,7 @@ async function handleJob(job) {
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
   if (attachments.length > 0) {
     console.log('[echelon-worker] job', jobId, 'using /v1/chat/completions with', attachments.length, 'attachment(s)');
-    return gatewayChatCompletionsWithImages({ requestText: message, attachments });
+    return gatewayChatCompletionsWithImages({ requestText: message, attachments, jobId });
   }
 
   // Text-only: existing chat.send + chat.history flow
