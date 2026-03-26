@@ -133,21 +133,61 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
 }
 
 /**
- * Call gateway POST /v1/chat/completions with multimodal content (text + image URLs).
+ * Call gateway POST /v1/chat/completions with multimodal content (text + attachments).
  * Used when job has metadata.attachments; otherwise we use chat.send + chat.history.
- * OpenAI-style: user message content is an array of { type: "text", text } and { type: "image_url", image_url: { url } }.
+ *
+ * Attachment support:
+ * - image: content includes { type: "image_url", image_url: { url } }
+ * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
 async function gatewayChatCompletionsWithImages({ requestText, attachments }) {
   const content = [{ type: 'text', text: requestText }];
-  if (Array.isArray(attachments) && attachments.length > 0) {
-    for (const att of attachments.slice(0, 4)) {
-      if (att?.type === 'image' && att?.url) {
+
+  const atts = Array.isArray(attachments) ? attachments : [];
+  const maxAtts = 4;
+  const maxTextBytes = 250_000; // protect worker and gateway payload sizes
+  const maxTextChars = 80_000;
+
+  const picked = atts.slice(0, maxAtts);
+
+  let sawImage = false;
+  let sawFile = false;
+
+  for (const att of picked) {
+    if (att?.type === 'image' && att?.url) {
+      sawImage = true;
+      content.push({
+        type: 'image_url',
+        image_url: { url: String(att.url) },
+      });
+      continue;
+    }
+
+    if (att?.type === 'file' && att?.url) {
+      sawFile = true;
+      const fileText = await downloadAttachmentText(att, { maxBytes: maxTextBytes, maxChars: maxTextChars });
+      if (fileText) {
+        const name = String(att.filename || att.name || '').trim() || 'attachment';
         content.push({
-          type: 'image_url',
-          image_url: { url: String(att.url) },
+          type: 'text',
+          text: `\n\n[Attached file: ${name}]\n${fileText}\n`,
+        });
+      } else {
+        const name = String(att.filename || att.name || '').trim() || 'attachment';
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached file: ${name}]\n(Unable to include contents; treat as attached file.)\n`,
         });
       }
     }
+  }
+
+  // Guardrail: if caller used the old fallback text but we only have files, clarify.
+  if (!sawImage && sawFile) {
+    content.unshift({
+      type: 'text',
+      text: '(Note: This job has attached file(s), not only image(s). File content may be inlined below.)\n\n',
+    });
   }
 
   const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
@@ -172,6 +212,39 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments }) {
   const text = msg?.content;
   const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
   return responseText;
+}
+
+function looksLikeCsv(att) {
+  const filename = String(att?.filename || att?.name || '').toLowerCase();
+  const mime = String(att?.mime_type || att?.mimeType || '').toLowerCase();
+  if (filename.endsWith('.csv')) return true;
+  if (mime.includes('text/csv')) return true;
+  return false;
+}
+
+async function downloadAttachmentText(att, { maxBytes, maxChars }) {
+  const url = String(att?.url || '').trim();
+  if (!url) return null;
+
+  // Only attempt to inline obvious text-ish attachments for now.
+  if (!looksLikeCsv(att)) return null;
+
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (!res.ok) return null;
+
+    // Avoid massive downloads by enforcing a hard byte cap.
+    // We do this by reading as text but truncating aggressively.
+    const raw = await res.text();
+    const truncated = raw.slice(0, maxChars);
+    return truncated;
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 /** OpenClaw gateway call (chat.send, chat.history). */
