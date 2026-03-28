@@ -33,3 +33,4 @@
 31. todo-tracker
 32. agentic-control-plane
 33. repo-map
+34. small-business-finance-tax

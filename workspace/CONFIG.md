@@ -4,6 +4,8 @@
 
 **Multi-repo orientation (TGA):** use the **`repo-map`** skill — `workspace/skills/repo-map/SKILL.md` — for which GitHub repo owns a feature, boundaries between repos, and preferred commands. That skill mirrors the human file **`WORKSPACE_REPO_MAP.md`** at the `tga-workspace` root (renamed from `AGENTS.md` to avoid clashing with Codex/Cursor `AGENTS.md`).
 
+**Redacted business financials:** for bank statements, exports, and tax/bookkeeping *assistance* (not CPA advice), use the **`small-business-finance-tax`** skill — `workspace/skills/small-business-finance-tax/SKILL.md`. Prefer redacted uploads; the user may attach PDFs/CSVs via the hosted agent UI or place files under the agent workspace when available.
+
 ---
 
 ## Email and calendar – where to look (critical)
