@@ -32,3 +32,4 @@
 30. supabase
 31. todo-tracker
 32. agentic-control-plane
+33. repo-map

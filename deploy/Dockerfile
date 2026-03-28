@@ -40,7 +40,7 @@ RUN if [ -f /app/.openclaw/openclaw.json ]; then \
       echo '{"agents":{"defaults":{"workspace":"/app/.openclaw/workspace","model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"},"gateway":{"controlUi":{"allowedOrigins":["https://edge-bot-production.up.railway.app"]},"http":{"endpoints":{"chatCompletions":{"enabled":true,"images":{"allowUrl":true}}}}}}' > /app/.openclaw/openclaw.json; \
     fi
 
-# Copy workspace (AGENTS.md, scripts, skills, etc.)
+# Copy workspace (CONFIG.md, scripts, skills incl. repo-map, etc.)
 # workspace/skills has highest precedence per OpenClaw; must be present
 COPY workspace/ /app/.openclaw/workspace/
 RUN ls -la /app/.openclaw/workspace/ && ls -la /app/.openclaw/workspace/skills/ 2>/dev/null || echo "WARN: workspace/skills missing"

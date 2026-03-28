@@ -2,6 +2,8 @@
 
 **Your workspace is this repo.** For procedures and reference (Composio, Gmail, worker, agent-vault, troubleshooting), see the **docs/** folder: AGENT_VAULT.md, JOBS_AND_WAKE_REFERENCE.md, NEW_EMAIL_TO_OPENCLAW.md, SECURE_OPENCLAW_COMPOSIO.md, WORKER_DAEMON.md, EDGE_BOT_COMMAND_EXECUTION_TROUBLESHOOTING.md. Read the relevant doc when the user asks for something that is documented there.
 
+**Multi-repo orientation (TGA):** use the **`repo-map`** skill — `workspace/skills/repo-map/SKILL.md` — for which GitHub repo owns a feature, boundaries between repos, and preferred commands. That skill mirrors the human file **`WORKSPACE_REPO_MAP.md`** at the `tga-workspace` root (renamed from `AGENTS.md` to avoid clashing with Codex/Cursor `AGENTS.md`).
+
 ---
 
 ## Email and calendar – where to look (critical)
