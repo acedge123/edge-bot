@@ -16,15 +16,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
   && rm -rf /var/lib/apt/lists/*
 
 # AWS Roles Anywhere signing helper (for credential_process)
-# Installs aws_signing_helper to /usr/local/bin (arch-aware).
+# Pinned version + paths from AWS release notes (not releases/latest/*-linux-amd64; those 403).
+ARG AWS_SIGNING_HELPER_VERSION=1.8.0
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
   case "$arch" in \
-    amd64) helper="aws_signing_helper-linux-amd64" ;; \
-    arm64) helper="aws_signing_helper-linux-arm64" ;; \
+    amd64) rel_path="X86_64/Linux/Amzn2023/aws_signing_helper" ;; \
+    arm64) rel_path="Aarch64/Linux/Amzn2023/aws_signing_helper" ;; \
     *) echo "Unsupported architecture for aws_signing_helper: $arch" >&2; exit 1 ;; \
   esac; \
-  curl -fsSL "https://rolesanywhere.amazonaws.com/releases/latest/${helper}" -o /usr/local/bin/aws_signing_helper; \
+  curl -fsSL "https://rolesanywhere.amazonaws.com/releases/${AWS_SIGNING_HELPER_VERSION}/${rel_path}" \
+    -o /usr/local/bin/aws_signing_helper; \
   chmod +x /usr/local/bin/aws_signing_helper; \
   /usr/local/bin/aws_signing_helper version || true
 
