@@ -15,6 +15,19 @@ ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq curl python3 \
   && rm -rf /var/lib/apt/lists/*
 
+# AWS Roles Anywhere signing helper (for credential_process)
+# Installs aws_signing_helper to /usr/local/bin (arch-aware).
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) helper="aws_signing_helper-linux-amd64" ;; \
+    arm64) helper="aws_signing_helper-linux-arm64" ;; \
+    *) echo "Unsupported architecture for aws_signing_helper: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://rolesanywhere.amazonaws.com/releases/latest/${helper}" -o /usr/local/bin/aws_signing_helper; \
+  chmod +x /usr/local/bin/aws_signing_helper; \
+  /usr/local/bin/aws_signing_helper version || true
+
 # Use HTTPS for git (avoids ssh for public deps like libsignal-node)
 RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
