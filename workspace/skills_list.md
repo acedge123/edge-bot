@@ -34,3 +34,4 @@
 32. agentic-control-plane
 33. repo-map
 34. small-business-finance-tax
+35. memory-index
