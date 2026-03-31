@@ -1,0 +1,21 @@
+name: dependency-policy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  block-latest-installs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Block npm @latest in Dockerfiles
+        run: |
+          set -euo pipefail
+          if grep -RIn --include='Dockerfile' --include='*.Dockerfile' --include='Dockerfile.*' 'npm[[:space:]]+install[^\\n]*@latest' .; then
+            echo "ERROR: Found npm install using @latest in Dockerfile. Pin versions instead."
+            exit 1
+          fi
+

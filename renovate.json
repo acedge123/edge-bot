@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base",
+    ":dependencyDashboard"
+  ],
+  "regexManagers": [
+    {
+      "fileMatch": ["^deploy/Dockerfile$"],
+      "matchStrings": [
+        "ARG OPENCLAW_VERSION=(?<currentValue>[^\\s]+)\\nRUN npm install -g \\\"openclaw@\\$\\{OPENCLAW_VERSION\\}\\\""
+      ],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "openclaw"
+    }
+  ]
+}
+

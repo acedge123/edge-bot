@@ -34,7 +34,8 @@ RUN set -eux; \
 RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Install OpenClaw globally
-RUN npm install -g openclaw@latest
+ARG OPENCLAW_VERSION=2026.3.28
+RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 
 # Create runtime directory
 RUN mkdir -p /app/.openclaw
