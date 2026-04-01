@@ -349,6 +349,199 @@ AND (
 
 The exact stock rule should remain configurable because the current sample shows `GOOGLE_SHOPPING_AVAILABILITY = 'in stock'` on many rows where `INVENTORY_QUANTITY = 0`.
 
+## Candidate set vs publish manifest
+
+Treat these as separate layers:
+
+1. **Source feed**
+   - full CIQ or J.Crew feed, potentially hundreds of thousands of variant rows
+2. **Candidate set**
+   - deterministic DuckDB output, for example `600K rows -> 5K variant rows / ~1K products`
+   - generated from structural rules such as status, inventory, price, vendor, tags, product type, and hard include or exclude lists
+3. **Publish manifest**
+   - the final approved assortment to sync into Shopify for the gifting storefront
+   - smaller than the candidate set, intentionally curated for creator gifting
+
+This split matters because DuckDB should be excellent at deterministic net-down, while the final Shopify assortment should remain explicit, inspectable, and reproducible.
+
+## Publish model for Shopify
+
+For this gifting storefront, Shopify is the serving layer, not the master catalog.
+
+Recommended biweekly publish behavior:
+
+1. Generate the new candidate set
+2. Generate and persist a versioned publish manifest
+3. Sync the new manifest into Shopify successfully
+4. Prune Shopify products that are not present in the new manifest
+
+This is effectively a full-refresh assortment, but it is safer than `delete everything first` because Shopify does not go empty if the refresh fails halfway through.
+
+Assumptions behind this model:
+
+- this Shopify store is dedicated to gifting
+- products are disposable storefront artifacts, not long-lived customer catalog assets
+- we do not need to preserve legacy carts, legacy links, or long-term product continuity between cycles
+
+## Manifest contract
+
+The publish manifest should be a first-class artifact, versioned per run.
+
+Suggested outputs:
+
+- `publish-manifest.json`
+- optionally `publish-manifest.csv` for easier inspection
+
+### Manifest purpose
+
+The manifest is the exact source of truth for what should exist in Shopify after a given run.
+
+It should answer:
+
+- which products or variants were selected
+- why they were selected
+- which run and config produced them
+- what should be created, updated, or pruned in Shopify
+
+### Manifest shape
+
+Use a top-level run object plus row-level selections.
+
+```json
+{
+  "manifestVersion": "2026-04-01",
+  "runId": "2026-04-01T12-00-00Z",
+  "source": {
+    "bucket": "ciq-thegig-agency",
+    "key": "incoming/raw/2026-04-01/full-feed.tsv"
+  },
+  "configVersion": "client-jcrew-gifting-v3",
+  "candidateSummary": {
+    "candidateVariantCount": 5000,
+    "candidateProductCount": 1000
+  },
+  "publishSummary": {
+    "publishVariantCount": 1200,
+    "publishProductCount": 280
+  },
+  "selections": [
+    {
+      "urlHandle": "cashmere-pointelle-mockneck-sweater",
+      "sku": "99106760930",
+      "title": "Cashmere pointelle mockneck sweater",
+      "vendor": "J.CREW",
+      "price": 138.0,
+      "status": "active",
+      "inventoryQuantity": 12,
+      "selectionReason": "matched seasonal knitwear theme and premium gifting band",
+      "ruleHits": ["theme:winter-soft-luxury", "priceBand:premium", "vendor:jcrew"],
+      "assortmentBucket": "women-knitwear",
+      "rankWithinBucket": 4,
+      "publish": true
+    }
+  ]
+}
+```
+
+### Required row-level fields
+
+- `urlHandle`
+- `sku`
+- `title`
+- `vendor`
+- `price`
+- `publish`
+- `selectionReason`
+- `ruleHits`
+
+### Strongly recommended row-level fields
+
+- `assortmentBucket`
+- `rankWithinBucket`
+- `inventoryQuantity`
+- `status`
+- `productType`
+- `tags`
+
+## Client configuration contract
+
+The client should not edit the skill text as the normal control surface. Instead, the skill should read a versioned configuration object plus optional allowlists and blocklists.
+
+That gives you flexibility without making the core agent behavior unauditable.
+
+### Configuration purpose
+
+The config should control how the agent turns the candidate set into the publish manifest.
+
+It should define:
+
+- what kinds of products are eligible
+- what kinds of products are preferred
+- diversity and assortment constraints
+- hard includes and excludes
+- publish size limits
+
+### Suggested config shape
+
+```json
+{
+  "configVersion": "client-jcrew-gifting-v3",
+  "candidateRules": {
+    "activeOnly": true,
+    "minInventory": 0,
+    "minPrice": 25,
+    "maxPrice": 250,
+    "allowedVendors": ["J.CREW"],
+    "allowedProductTypes": [
+      "Apparel & Accessories > Clothing",
+      "Apparel & Accessories > Shoes"
+    ],
+    "requiredTagMatchesAny": ["giftable", "creator-favorite"],
+    "blockedTagMatchesAny": ["final-sale", "restricted"]
+  },
+  "manifestRules": {
+    "targetProductCount": 300,
+    "targetVariantCount": 1200,
+    "maxVariantsPerProduct": 5,
+    "maxProductsPerBucket": 40,
+    "bucketTargets": [
+      { "bucket": "women-knitwear", "targetProducts": 30 },
+      { "bucket": "mens-shirts", "targetProducts": 25 },
+      { "bucket": "accessories", "targetProducts": 20 }
+    ],
+    "diversityAxes": ["product_type", "price_band", "gender_theme"],
+    "selectionMode": "balanced"
+  },
+  "hardRules": {
+    "forceIncludeSkus": ["99104989069"],
+    "forceExcludeSkus": ["99100000000"],
+    "forceIncludeHandles": [],
+    "forceExcludeHandles": []
+  }
+}
+```
+
+### What should be configurable
+
+- price bands
+- product type preferences
+- gifting themes or assortment buckets
+- max products to publish
+- max variants per product
+- force include or exclude SKU lists
+- force include or exclude handle lists
+- inventory thresholds
+- diversity rules across categories, price bands, or themes
+
+### What should remain in stable code or skill logic
+
+- how the feed is downloaded
+- how normalization works
+- how candidate SQL is compiled safely
+- how manifests are written and versioned
+- how Shopify sync and prune are executed
+- how logging and summary artifacts are emitted
+
 ## Output
 
 ### CSV
@@ -457,10 +650,112 @@ For the current sample TSV, testing may need one of these approaches:
 - temporarily set a few fixture rows to `INVENTORY_QUANTITY = 1`
 - or disable `inStockOnly` in the smoke test config while keeping `minInventory = 0`
 
+## Assumptions, dependencies, and risks
+
+This section is for operators and partner engineering (for example CIQ): what we depend on, what can go wrong, and what is explicitly out of scope for the first implementation.
+
+### Dependencies (external)
+
+- **AWS access**: The runtime principal (Roles Anywhere → IAM role) can perform the agreed S3 actions on the agreed prefixes. **Bucket-level** permissions (`s3:ListBucket` on the bucket ARN) and **object-level** permissions (`GetObject` / `PutObject` on `bucket/key*`) must both match how the job reads and writes. A common failure mode is granting object read without list, or mismatch between bucket policy and role policy.
+- **Feed delivery**: Someone or something places the authoritative feed in the agreed location (for example `incoming/raw/<date>/`) on the expected cadence, or updates a **manifest** that points to the current file. If the feed is late, empty, or dropped in the wrong prefix, the pipeline cannot invent correct outputs.
+- **Schema contract**: The feed remains compatible with the normalization map (column names and meanings). Breaking changes require coordination and a doc or version bump, not silent drift.
+- **Downstream handoff**: Who consumes `outgoing/curated/...` (for example a Shopify loader) is defined; file naming and column preservation match that tool’s contract.
+- **Hosting**: Railway (or successor) runs the job with sufficient disk for inbound + normalized + outbound peaks, and with `RA_*` and other secrets configured and renewed before expiry.
+
+### Assumptions (internal)
+
+- Batch **biweekly** (or as agreed) is sufficient; near-real-time sync is not required for v1.
+- Curation rules and allow/block lists are **versioned or snapshotted** for reproducibility when runs are audited or disputed.
+- The orchestrator **fails closed**: on validation errors, missing columns, or suspicious counts, it does not publish a curated file as if the run succeeded.
+
+### Risks (what can stall or derail)
+
+| Risk | Typical symptom | Mitigation direction |
+|------|-----------------|---------------------|
+| IAM or bucket policy gap | `AccessDenied` on list or get | Prefix-scoped policies; explicit checklist (STS identity + list prefix + get head object); CIQ/TGA joint verification |
+| Feed late or missing | No new raw object by cutoff | Monitoring on **freshness** of `incoming/` or manifest; alert if SLA missed |
+| Schema drift | Pipeline throws or drops columns | Strict validation against expected columns; fail with clear error; summary records warnings |
+| Bad rules or data | Curated row count near zero or huge | Bounds on `filteredRowCount`; compare to prior run; human review threshold |
+| Disk or OOM on Railway | Job killed mid-run | Streamed download; Parquet normalization; max inbound size; volume or larger instance if needed |
+| Silent partial success | Old curated file looks “still there” | Write outputs to a **new dated path**; treat success as **new** `summary.json` for that run, not “any file exists” |
+
+### Non-goals (v1)
+
+- Multi-tenant analytics warehouse or ad hoc SQL for many users (Athena or a database may come later).
+- Direct DuckDB reading from S3 (`httpfs`) as the first path; local disk + SDK first.
+- Guaranteed SLA or 24/7 on-call unless separately agreed; this doc describes the **technical** shape so SLA can be layered on.
+
+### Ownership (typical split)
+
+Clarify in the engagement letter or runbook who owns: S3 bucket and IAM changes, feed upload timing, running the job, first-line triage, and notifying the brand or CIQ. Ambiguity here is a common source of delays, not code defects.
+
+## Operational monitoring and alerting (biweekly flow)
+
+The pipeline should be **observable** without relying on a human remembering to run it. Prefer **deterministic** checks such as timestamps, files, structured run records, and JSON summaries over a second LLM “watching” the process; an agent may **start** a run, but **verification** should be scriptable.
+
+### What “success” looks like (signals)
+
+After each scheduled or manual run, success should be provable from artifacts and logs:
+
+- A new **`summary.json`** under the agreed output prefix (for example `outgoing/curated/<YYYY-MM-DD>/summary.json`) with stable fields: `runId`, source bucket/key, row counts, and `warnings` (may be empty).
+- Companion outputs as agreed: for example `shopify-feed.csv` (and optionally Parquet) in the same dated folder.
+- Application logs or structured run records show a single run with a stable `run_id`, clear start/end markers, and no unhandled exceptions.
+- Optional: a **manifest** in S3 updated to point at the latest curated path for downstream consumers.
+
+Define **expected bands** for `filteredRowCount` (for example not zero when the catalog is live, and not above `limit` without explanation) so automation can flag anomalies.
+
+### What breaks at each step (how you know)
+
+| Step | If it fails | How you notice |
+|------|-------------|----------------|
+| Credentials / IAM | `AccessDenied`, STS or SDK errors | Logs; smoke test; missing success summary for the expected run |
+| Download | Timeout, 404, partial file | Logs; missing or tiny inbound file; checksum/size if implemented |
+| Normalize (DuckDB) | Parse error, type error | Logs; no `normalized/` parquet; DuckDB error text |
+| Filter / validate | SQL or rule error | Logs; missing outbound files |
+| Upload | `AccessDenied`, network | Logs; S3 has no new dated `outgoing/` objects |
+| Downstream | Loader rejects file | Their logs; optional post-check of file headers |
+
+### How to run every two weeks (scheduling options)
+
+Pick one primary mechanism; combine with **post-run verification** below.
+
+1. **Time-based cron invoking a one-shot runner (recommended for v1)**  
+   - **GitHub Actions** `schedule` calling a small workflow that runs a CLI wrapper or one-shot job command on the agreed day/time.  
+   - **Railway**: use a scheduled job if your plan supports running a dedicated one-shot command for the pipeline.  
+   - **External cron** (for example a managed scheduler) invoking a CLI/job-runner path, not a new long-running app service.
+
+2. **Calendar + human trigger (early prototype)**  
+   - Operator or agent starts the run on the agreed day. Acceptable only if paired with **freshness alerts** so a missed human step is detected.
+
+3. **Event-driven (later)**  
+   - S3 `ObjectCreated` on `incoming/raw/` triggers a worker (Lambda, queue consumer, or webhook). Strong when CIQ controls uploads; requires infra on their side or yours and is listed under future extensions for a reason.
+
+4. **Webhook-triggered service endpoint (later, only if needed)**  
+   - Keep this out of v1 unless we decide we need a network-facing trigger surface. The current preferred architecture is a local module plus thin wrapper, not a new always-on service dedicated to feed runs.
+
+**Avoid** depending on a second “monitoring agent” as the **only** safety net: it adds nondeterminism and cost. Use an agent to **kick off** or **summarize** a failed log if you want; use **cron + checks** for whether the business event happened.
+
+### How to alert TGA and CIQ when something is wrong
+
+Separate **“job failed”** from **“job didn’t run.”**
+
+- **On failure**: The orchestrator (or wrapper script) catches errors and sends one structured notification: run id, step, error class, and **no secrets**. Channels often used: Slack incoming webhook, email via provider API, or PagerDuty/Opsgenie if severity warrants it.
+- **On missed schedule**: A **freshness checker** runs on an independent schedule (for example daily) and verifies that within the last **N** days there is a new successful `summary.json` (or manifest updated). If not, alert with the last successful run timestamp, for example: “No successful product-feed run since {last_summary_timestamp}.” This checker can be GitHub Actions, a tiny cron container, or CIQ-owned monitoring if they have bucket read access to `outgoing/curated/`.
+
+**Sharing proof with CIQ**: For v1, use `summary.json` and curated outputs as the shared proof surface. Grant read access to `outgoing/curated/` if appropriate, or export the latest `summary.json` to them via email or Slack so they can correlate with their feed delivery. Treat Railway application logs as an internal operator surface unless we explicitly add S3-hosted run logs to the contract later.
+
+### Minimal monitoring checklist (v1)
+
+- [ ] Every run writes **`summary.json`** with counts and source key.  
+- [ ] Railway (or host) retains logs long enough to debug the last failed run.  
+- [ ] **Freshness** job: alert if no successful run by **cutoff** after the expected biweekly drop.  
+- [ ] **Anomaly** rule: alert if `filteredRowCount` is outside agreed bounds compared to the previous run.  
+- [ ] Runbook line: who is paged first (TGA vs CIQ) and what information to attach (run id, log excerpt, `summary.json`).
+
 ## Future extensions (do not implement yet)
 
 - Direct DuckDB S3 reads with `httpfs`
-- Rule manifests and dated rule snapshots in S3
+- Rule manifests and dated rule snapshots in S3 (partially specified in the Shopify feed curation skill; promote to first-class when implemented)
 - Partitioned feeds
 - Cross-account AssumeRole
-- Scheduling, cron or event-driven
+- Full event-driven runs (S3 notifications → queue → worker) in addition to cron
