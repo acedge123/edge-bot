@@ -55,7 +55,7 @@ clawdbot config set agents.defaults.memorySearch.experimental.sessionMemory true
 
 ## Mental Model (read this once)
 
-OpenClaw memory has **three layers**. Confusion usually comes from mixing them up.
+OpenClaw memory has **three on-disk layers** in the workspace. **Hosted** edge-bot deployments may also use **Agent Vault** (fourth layer below). Confusion usually comes from mixing them up.
 
 ### 1. Session Memory (RAM)
 - Lives in the current conversation
@@ -83,6 +83,17 @@ OpenClaw memory has **three layers**. Confusion usually comes from mixing them u
 - Indexed and retrievable
 
 👉 Treat as facts the agent must not forget.
+
+---
+
+### 4. Agent Vault (`agent-learnings` skill — hosted / multi-session)
+
+Applies when **`AGENT_VAULT_URL`** and **`AGENT_EDGE_KEY`** are set (e.g. Railway **edge-bot**).
+
+- Persists **searchable** learnings and **relational memory** (people, orgs, projects, relationships, commitments) via Supabase **agent-vault** — not the same files as `MEMORY.md`.
+- Use **`agent-learnings`** for durable, tenant-scoped facts that must survive **new chat sessions** without depending on a hydrated workspace copy of `MEMORY.md`.
+- Do **not** duplicate the same canonical fact in both `MEMORY.md` and Vault; keep `MEMORY.md` as a short index or pointer if needed.
+- Full API and schema: repo **`docs/AGENT_LEARNINGS_SCHEMA.md`** (and **`docs/RELATIONAL_MEMORY_MODEL.md`** for the product model).
 
 ---
 
@@ -159,7 +170,7 @@ This keeps context small and precise.
 ## Agent Playbook (rules for agents)
 
 - Prefer disk over RAM
-- Prefer `MEMORY.md` over daily logs for facts
+- Prefer `MEMORY.md` over daily logs for facts (on-disk); on **hosted** agents with Vault configured, prefer **`agent-learnings`** for cross-session durable + structured memory
 - Use search before asking the user again
 - Never copy raw chat into memory
 - Write memory explicitly, do not assume it sticks

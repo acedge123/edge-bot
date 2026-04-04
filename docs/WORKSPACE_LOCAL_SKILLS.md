@@ -13,7 +13,7 @@ In the **edge-bot** repo, all workspace-local skills are under:
 Each skill has a `SKILL.md` and supporting files, for example:
 
 - `workspace/skills/secure-gmail/` — Gmail via Composio
-- `workspace/skills/agent-learnings/` — Agent Vault learnings read/write
+- `workspace/skills/agent-learnings/` — Agent Vault: learnings + relational memory (entities, relationships, commitments)
 - `workspace/skills/ciq-manage-api/` — CIQ Manage API
 - `workspace/skills/ciq-automations/` — CIQ Automations
 - `workspace/skills/agentic-control-plane/` — ACP kit

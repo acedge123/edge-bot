@@ -13,6 +13,14 @@ Build a robust, Railway-compatible batch pipeline to:
 
 This is a batch data pipeline, not a request/response API path.
 
+## Scope
+
+v1 is optimized for a single brand feed and a single gifting storefront, currently J.Crew.
+
+CIQ as a platform is multi-tenant, and this architecture may later be reused for other brands or clients, but multi-brand generalization is intentionally deferred until the J.Crew workflow is stable in production.
+
+The configuration model is designed to allow future extension, but v1 implementation decisions should favor single-brand simplicity, easier debugging, and faster shipping over generalized abstractions.
+
 ## Current decision
 
 Use DuckDB for this workflow.
@@ -26,6 +34,23 @@ Why this is the right default here:
 - keeps the first implementation simple: `S3 download -> local file -> DuckDB -> outputs`
 
 For `edge-bot`, prefer AWS SDK stream download to local disk first and then point DuckDB at the local file. Do not make direct DuckDB S3 reads the first implementation. Direct `httpfs` / S3 reads can remain a later optimization once the local-disk path is working reliably in the Railway container with Roles Anywhere.
+
+### Responsibility split
+
+Be explicit about the architectural split:
+
+- **DuckDB = structural filtering**
+  - normalize the raw feed
+  - apply deterministic candidate rules
+  - enforce hard constraints such as status, inventory, price, explicit includes/excludes, and row limits
+  - emit reproducible candidate sets and summary artifacts
+- **Agent = merchandising intelligence**
+  - interpret client configuration
+  - reason about assortment balance, gifting themes, bucket coverage, and publish priorities
+  - choose the final publish manifest from the candidate set
+  - explain why products were selected
+
+Do not push merchandising judgment down into ad hoc SQL heuristics, and do not ask the agent to operate directly on the full 600K-row raw feed when DuckDB can first reduce it deterministically.
 
 ## Environment context
 
@@ -131,6 +156,24 @@ Important observations from the sample:
 - multiple rows can share the same handle, so reporting must distinguish:
   - distinct `sku`
   - distinct `url_handle`
+
+## Categorization source of truth
+
+The current sample feed does not include a first-class `COLLECTION` field, so any use of collections, assortment buckets, or gifting themes must come from an explicit derivation rule.
+
+For v1, categorization may come from:
+
+1. `tags`
+2. `product_type` or `product_category`
+3. an external mapping config maintained alongside the client configuration
+
+Do not let the agent invent category semantics ad hoc from free-form text alone. If the manifest logic refers to a collection, bucket, or theme, the doc or config should define how that concept is derived.
+
+Examples:
+
+- a “women-knitwear” bucket may be derived from `product_type`
+- a “spring-color” theme may be derived from specific tags
+- a “premium-gifting” bucket may come from explicit config rules combining price band and product type
 
 ## Canonical normalization map
 
@@ -251,6 +294,7 @@ Inputs:
 - `workingDir: string`
 - `outputBucket?: string`
 - `outputPrefix?: string`
+- `mode?: 'dry-run' | 'candidate-only' | 'full-publish'`
 - `rules: Rules`
 
 Flow:
@@ -258,7 +302,9 @@ Flow:
 1. Download source feed by streaming to disk
 2. Normalize raw feed to local Parquet with DuckDB
 3. Run DuckDB filter
-4. Upload outputs, optional
+4. Generate manifest and run diff
+5. Upload outputs, optional depending on mode
+6. Publish to Shopify only in `full-publish` mode
 5. Return structured result
 
 Return shape:
@@ -270,6 +316,7 @@ Return shape:
   "filteredRowCount": 4872,
   "distinctSkuCount": 4872,
   "distinctHandleCount": 3510,
+  "mode": "candidate-only",
   "inputPath": "/tmp/product-feeds/.../inbound/source.tsv",
   "normalizedParquetPath": "/tmp/product-feeds/.../normalized/source.parquet",
   "outputCsvPath": "/tmp/product-feeds/.../outbound/curated.csv",
@@ -279,7 +326,8 @@ Return shape:
   "uploadedKeys": {
     "csv": "curated/feeds/run-123/curated.csv",
     "parquet": "curated/feeds/run-123/curated.parquet",
-    "summary": "curated/feeds/run-123/summary.json"
+    "summary": "curated/feeds/run-123/summary.json",
+    "manifest": "curated/feeds/run-123/publish-manifest.json"
   },
   "schema": ["url_handle", "title", "vendor", "status", "sku", "price"]
 }
@@ -314,6 +362,7 @@ Notes:
   - set `inStockOnly: false`
   - or modify fixture rows to positive inventory
 - `collections` should be treated as optional future support, not a required first-version rule, unless the real feed or a separate rules source provides collection data
+- `collections` in rules should be interpreted as derived or mapped groupings, not as a guaranteed raw feed column
 
 ### SQL pattern (illustrative)
 
@@ -349,6 +398,53 @@ AND (
 
 The exact stock rule should remain configurable because the current sample shows `GOOGLE_SHOPPING_AVAILABILITY = 'in stock'` on many rows where `INVENTORY_QUANTITY = 0`.
 
+### Publish safety gate
+
+The pipeline should fail closed on abnormal counts.
+
+If `filteredRowCount` or final manifest counts fall outside configured thresholds, then:
+
+- do **not** publish to Shopify
+- mark the run as `needs_manual_review`
+- write `summary.json` with the failed thresholds and observed counts
+- send an operator alert
+
+Example:
+
+```text
+if filteredRowCount < minCandidateThreshold OR filteredRowCount > maxCandidateThreshold
+  -> do not publish
+  -> require manual review
+```
+
+This gate should apply before any Shopify sync or prune step.
+
+### Run modes
+
+The pipeline should support explicit run modes:
+
+```json
+{
+  "mode": "dry-run | candidate-only | full-publish"
+}
+```
+
+Mode semantics:
+
+- `dry-run`
+  - run normalization, candidate generation, manifest generation, and validation
+  - do not upload outputs unless explicitly configured
+  - do not publish to Shopify
+- `candidate-only`
+  - write candidate outputs, manifest artifacts, summary, and diff artifacts
+  - may upload artifacts to S3
+  - do not publish to Shopify
+- `full-publish`
+  - perform the full pipeline, including Shopify sync and prune
+  - only allowed after validation and publish safety gates pass
+
+Use `candidate-only` as the default operational preview mode when debugging rules or client configuration changes.
+
 ## Candidate set vs publish manifest
 
 Treat these as separate layers:
@@ -359,10 +455,10 @@ Treat these as separate layers:
    - deterministic DuckDB output, for example `600K rows -> 5K variant rows / ~1K products`
    - generated from structural rules such as status, inventory, price, vendor, tags, product type, and hard include or exclude lists
 3. **Publish manifest**
-   - the final approved assortment to sync into Shopify for the gifting storefront
+   - the agent-selected merchandising assortment to sync into Shopify for the gifting storefront
    - smaller than the candidate set, intentionally curated for creator gifting
 
-This split matters because DuckDB should be excellent at deterministic net-down, while the final Shopify assortment should remain explicit, inspectable, and reproducible.
+This split matters because DuckDB should own deterministic structural net-down, while the agent should own merchandising judgment over the candidate set. The final Shopify assortment should remain explicit, inspectable, and reproducible.
 
 ## Publish model for Shopify
 
@@ -391,6 +487,7 @@ Suggested outputs:
 
 - `publish-manifest.json`
 - optionally `publish-manifest.csv` for easier inspection
+- `run-diff.json`
 
 ### Manifest purpose
 
@@ -402,6 +499,7 @@ It should answer:
 - why they were selected
 - which run and config produced them
 - what should be created, updated, or pruned in Shopify
+- how this run differs from the previous successful manifest
 
 ### Manifest shape
 
@@ -463,6 +561,36 @@ Use a top-level run object plus row-level selections.
 - `productType`
 - `tags`
 
+## Previous-run diff contract
+
+Each run should compare its publish manifest to the previous successful run and emit a machine-readable diff artifact.
+
+Suggested output:
+
+- `run-diff.json`
+
+Example:
+
+```json
+{
+  "runId": "2026-04-01T12-00-00Z",
+  "previousRunId": "2026-03-15T12-00-00Z",
+  "addedSkus": ["99106760930", "99107306829"],
+  "removedSkus": ["99100000000"],
+  "unchangedCount": 800,
+  "addedProductHandles": ["cashmere-pointelle-mockneck-sweater"],
+  "removedProductHandles": ["old-wool-overcoat"]
+}
+```
+
+Why this matters:
+
+- useful client reporting for what changed this cycle
+- operational safety check before publish
+- easier debugging when a rule change has unexpectedly large impact
+
+The diff should be computed against the most recent successful publish manifest, not merely the previous attempted run.
+
 ## Client configuration contract
 
 The client should not edit the skill text as the normal control surface. Instead, the skill should read a versioned configuration object plus optional allowlists and blocklists.
@@ -480,6 +608,11 @@ It should define:
 - diversity and assortment constraints
 - hard includes and excludes
 - publish size limits
+- how derived buckets, themes, or collection-like groupings are mapped from source fields
+
+Use the config to steer agent merchandising decisions, not to replace deterministic candidate filtering that should already happen in DuckDB.
+
+The config may also specify default run mode and diff behavior, but these should remain operator-overridable at execution time.
 
 ### Suggested config shape
 
@@ -502,8 +635,21 @@ It should define:
   "manifestRules": {
     "targetProductCount": 300,
     "targetVariantCount": 1200,
+    "minCandidateThreshold": 500,
+    "maxCandidateThreshold": 10000,
+    "minPublishProductThreshold": 150,
+    "maxPublishProductThreshold": 500,
     "maxVariantsPerProduct": 5,
     "maxProductsPerBucket": 40,
+    "bucketDefinitions": [
+      {
+        "bucket": "women-knitwear",
+        "matchAny": {
+          "productTypes": ["sweaters", "knit tops"],
+          "tagsContains": ["cashmere", "knit"]
+        }
+      }
+    ],
     "bucketTargets": [
       { "bucket": "women-knitwear", "targetProducts": 30 },
       { "bucket": "mens-shirts", "targetProducts": 25 },
@@ -526,8 +672,10 @@ It should define:
 - price bands
 - product type preferences
 - gifting themes or assortment buckets
+- bucket and theme definitions derived from tags, product types, categories, or external mappings
 - max products to publish
 - max variants per product
+- minimum and maximum candidate and publish thresholds
 - force include or exclude SKU lists
 - force include or exclude handle lists
 - inventory thresholds
@@ -563,6 +711,7 @@ Write a summary artifact with at least:
 ```json
 {
   "runId": "2026-04-01T12-00-00Z",
+  "mode": "candidate-only",
   "source": {
     "bucket": "ciq-thegig-agency",
     "key": "incoming/raw/2026-04-01/full-feed.tsv"
@@ -572,6 +721,10 @@ Write a summary artifact with at least:
   "distinctSkuCount": 4872,
   "distinctHandleCount": 3510,
   "duplicateSkuCount": 0,
+  "previousRunId": "2026-03-15T12-00-00Z",
+  "addedSkuCount": 42,
+  "removedSkuCount": 37,
+  "unchangedSkuCount": 800,
   "warnings": []
 }
 ```
@@ -581,10 +734,12 @@ Write a summary artifact with at least:
 Log at minimum:
 
 - source bucket and key
+- run mode
 - local file paths, inbound, normalized, and outbound
 - file sizes, inbound and outbound, if available
 - row counts, before and after
 - distinct handles and distinct SKUs
+- previous-run diff summary, added and removed counts
 - output destinations if uploaded
 - a stable `run_id` or timestamp
 
@@ -634,6 +789,8 @@ await processProductFeed({
 - Always apply a stable `ORDER BY` before `LIMIT`
 - Report both variant-level and product-level counts when possible
 - Preserve upstream columns in the curated CSV unless a later Shopify contract says otherwise
+- Do not allow Shopify writes in `dry-run` or `candidate-only` modes
+- Compute manifest diff against the last successful publish before `full-publish`
 
 ## Test harness (smoke test)
 
@@ -667,6 +824,7 @@ This section is for operators and partner engineering (for example CIQ): what we
 - Batch **biweekly** (or as agreed) is sufficient; near-real-time sync is not required for v1.
 - Curation rules and allow/block lists are **versioned or snapshotted** for reproducibility when runs are audited or disputed.
 - The orchestrator **fails closed**: on validation errors, missing columns, or suspicious counts, it does not publish a curated file as if the run succeeded.
+- If candidate or publish counts fall outside configured thresholds, the run is blocked from publishing and requires manual review.
 
 ### Risks (what can stall or derail)
 
@@ -675,7 +833,8 @@ This section is for operators and partner engineering (for example CIQ): what we
 | IAM or bucket policy gap | `AccessDenied` on list or get | Prefix-scoped policies; explicit checklist (STS identity + list prefix + get head object); CIQ/TGA joint verification |
 | Feed late or missing | No new raw object by cutoff | Monitoring on **freshness** of `incoming/` or manifest; alert if SLA missed |
 | Schema drift | Pipeline throws or drops columns | Strict validation against expected columns; fail with clear error; summary records warnings |
-| Bad rules or data | Curated row count near zero or huge | Bounds on `filteredRowCount`; compare to prior run; human review threshold |
+| Bad rules or data | Curated row count near zero or huge | Hard min/max thresholds on candidate and publish counts; compare to prior run; require manual review before publish |
+| Unexpected assortment churn | Too many products added or removed between runs | Emit previous-run diff; alert on large added/removed counts; review before publish |
 | Disk or OOM on Railway | Job killed mid-run | Streamed download; Parquet normalization; max inbound size; volume or larger instance if needed |
 | Silent partial success | Old curated file looks “still there” | Write outputs to a **new dated path**; treat success as **new** `summary.json` for that run, not “any file exists” |
 
@@ -698,11 +857,12 @@ The pipeline should be **observable** without relying on a human remembering to 
 After each scheduled or manual run, success should be provable from artifacts and logs:
 
 - A new **`summary.json`** under the agreed output prefix (for example `outgoing/curated/<YYYY-MM-DD>/summary.json`) with stable fields: `runId`, source bucket/key, row counts, and `warnings` (may be empty).
+- A new **`run-diff.json`** comparing this manifest to the last successful run.
 - Companion outputs as agreed: for example `shopify-feed.csv` (and optionally Parquet) in the same dated folder.
 - Application logs or structured run records show a single run with a stable `run_id`, clear start/end markers, and no unhandled exceptions.
 - Optional: a **manifest** in S3 updated to point at the latest curated path for downstream consumers.
 
-Define **expected bands** for `filteredRowCount` (for example not zero when the catalog is live, and not above `limit` without explanation) so automation can flag anomalies.
+Define hard **publish thresholds** and softer **expected bands** for `filteredRowCount`, final publish counts, and manifest diff size. If counts fall outside hard thresholds, block publish and require manual review. If counts are inside hard thresholds but outside normal historical bands, alert for investigation.
 
 ### What breaks at each step (how you know)
 
@@ -747,9 +907,12 @@ Separate **“job failed”** from **“job didn’t run.”**
 ### Minimal monitoring checklist (v1)
 
 - [ ] Every run writes **`summary.json`** with counts and source key.  
+- [ ] Every run writes **`run-diff.json`** with added, removed, and unchanged counts versus the last successful run.  
 - [ ] Railway (or host) retains logs long enough to debug the last failed run.  
 - [ ] **Freshness** job: alert if no successful run by **cutoff** after the expected biweekly drop.  
 - [ ] **Anomaly** rule: alert if `filteredRowCount` is outside agreed bounds compared to the previous run.  
+- [ ] **Churn** rule: alert if added or removed SKU counts exceed agreed limits.  
+- [ ] **Publish gate**: if candidate or publish counts are outside configured hard thresholds, do not publish and require manual review.  
 - [ ] Runbook line: who is paged first (TGA vs CIQ) and what information to attach (run id, log excerpt, `summary.json`).
 
 ## Future extensions (do not implement yet)

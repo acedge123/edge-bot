@@ -46,6 +46,8 @@ Use the **`agent-learnings`** skill.
 - Do not store secrets.
 - Prefer short, high-signal learnings.
 
+**Relational memory (same skill, richer writes):** when a fact involves **named people/orgs/projects**, **relationships** (e.g. responsible_for, works_at), or **follow-ups/commitments**, prefer `POST /learnings` with **composite** fields (`create_entities`, `entity_links`, `create_relationships`, `create_commitments`) or the dedicated `/entities/*`, `/relationships`, `/commitments` endpoints — see repo `docs/AGENT_LEARNINGS_SCHEMA.md` and `docs/RELATIONAL_MEMORY_MODEL.md` if present in the workspace.
+
 ## Process: rewrite a messy `MEMORY.md`
 1) Classify each block as: **Invariant**, **Decision**, **Playbook**, **Domain note**, or **Daily/incident**.
 2) Move full text into the right vault note (or Agent Vault learning).

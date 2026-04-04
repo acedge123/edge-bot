@@ -2,6 +2,8 @@
 
 This document is the **single source of truth** for the Edge Bot (and any other agent) to understand the `agent_learnings` table, relational memory tables, and how to interact with them via agent-vault.
 
+For product and architecture context (when to use relational memory vs narrative learnings), see [`RELATIONAL_MEMORY_MODEL.md`](./RELATIONAL_MEMORY_MODEL.md).
+
 **Base URL**: `https://nljlsqgldgmxlbylqazg.supabase.co/functions/v1/agent-vault`
 
 **Auth**: Bearer token (`AGENT_EDGE_KEY`) in `Authorization` header for all endpoints below. Never log or echo this token. Rotate via Supabase dashboard → Edge Functions secrets.
