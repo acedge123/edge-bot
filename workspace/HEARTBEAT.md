@@ -11,12 +11,12 @@ The **worker** claims jobs and POSTs the job message to the Gateway at `/hooks/w
 - If a **skill or command fails**, say what failed (e.g. which skill, which tool, or the error) and that the user can check **docs/EDGE_BOT_COMMAND_EXECUTION_TROUBLESHOOTING.md** — avoid vague "command execution issues" messages.
 - If nothing else needs attention, reply `HEARTBEAT_OK`.
 
-## When a heartbeat/cron runs (e.g. hourly email check)
+## When a scheduled cron job runs
 
-Your cron includes an **Email Check** job that runs every hour (see `~/.openclaw/cron/jobs.json`). When that fires:
+If the gateway has a scheduled job (see `openclaw cron list` / `~/.openclaw/cron/` on that host), treat the **job payload** as the instruction set—follow it literally (which skills to use, what to write, what status line to return).
 
-- **Check email** using the **secure-gmail skill** and **Composio** (Gmail API). See **docs/NEW_EMAIL_TO_OPENCLAW.md** and **workspace/skills/secure-gmail/SKILL.md**.
-- Do **not** run a shell command named `email` — there is no such command. Use the skill/Composio flow only.
-- Summarize new or relevant messages for the user; if nothing needs attention, reply `HEARTBEAT_OK`.
+**Hosted Railway:** Cron definitions should live on the workspace volume (see **deploy/RAILWAY_SKILLS_AND_LEARNINGS.md** § OpenClaw gateway cron and `deploy/entrypoint.sh` symlink).
 
-Other cron jobs (e.g. Security Hooks Audit) will have their own payload text; process those accordingly.
+When nothing in the payload needs user-visible output, reply `HEARTBEAT_OK` unless the payload says otherwise.
+
+Other jobs will have their own payload text; process each accordingly.
