@@ -58,6 +58,15 @@ else
   cp -a "${BAKED_WORKSPACE_DIR}/skills/." "${WORKSPACE_DIR}/skills/"
 fi
 
+# OpenClaw expects cron under ${OPENCLAW_STATE_DIR}/cron. When the Railway volume is mounted only on
+# workspace/, store jobs.json on the volume and symlink the canonical path (survives redeploy).
+mkdir -p "${WORKSPACE_DIR}/cron"
+if [ -e "${OPENCLAW_STATE_DIR}/cron" ] && [ ! -L "${OPENCLAW_STATE_DIR}/cron" ]; then
+  rm -rf "${OPENCLAW_STATE_DIR}/cron"
+fi
+ln -sfn "${WORKSPACE_DIR}/cron" "${OPENCLAW_STATE_DIR}/cron"
+echo "[entrypoint] cron -> volume: ${OPENCLAW_STATE_DIR}/cron -> ${WORKSPACE_DIR}/cron"
+
 configure_roles_anywhere
 
 export PORT="${PORT:-18789}"
