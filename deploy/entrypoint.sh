@@ -52,10 +52,13 @@ if [ ! -f "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" ]; then
   mkdir -p "${WORKSPACE_DIR}"
   cp -a "${BAKED_WORKSPACE_DIR}/." "${WORKSPACE_DIR}/"
 else
-  echo "[entrypoint] syncing workspace/scripts and workspace/skills from image (so worker and skills are current)"
-  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills"
+  echo "[entrypoint] syncing workspace/scripts, workspace/skills, and workspace/docs from image (so worker, skills, and wiki reference docs are current)"
+  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills" "${WORKSPACE_DIR}/docs"
   cp -a "${BAKED_WORKSPACE_DIR}/scripts/." "${WORKSPACE_DIR}/scripts/"
   cp -a "${BAKED_WORKSPACE_DIR}/skills/." "${WORKSPACE_DIR}/skills/"
+  if [ -d "${BAKED_WORKSPACE_DIR}/docs" ]; then
+    cp -a "${BAKED_WORKSPACE_DIR}/docs/." "${WORKSPACE_DIR}/docs/"
+  fi
 fi
 
 # OpenClaw expects cron under ${OPENCLAW_STATE_DIR}/cron. When the Railway volume is mounted only on

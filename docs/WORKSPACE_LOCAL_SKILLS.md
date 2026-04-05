@@ -14,6 +14,7 @@ Each skill has a `SKILL.md` and supporting files, for example:
 
 - `workspace/skills/secure-gmail/` — Gmail via Composio
 - `workspace/skills/agent-learnings/` — Agent Vault: learnings + relational memory (entities, relationships, commitments)
+- `workspace/skills/wiki-engine/` — Supabase wiki-engine (sources, pages, `/answer`); reference `workspace/docs/WIKI_*.md` on the image
 - `workspace/skills/ciq-manage-api/` — CIQ Manage API
 - `workspace/skills/ciq-automations/` — CIQ Automations
 - `workspace/skills/agentic-control-plane/` — ACP kit

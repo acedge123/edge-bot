@@ -59,6 +59,8 @@ RUN if [ -f /app/.openclaw/openclaw.json ]; then \
 # Copy workspace (CONFIG.md, scripts, skills incl. repo-map, etc.)
 # workspace/skills has highest precedence per OpenClaw; must be present
 COPY workspace/ /app/.openclaw/workspace/
+# Wiki reference docs (mirrored from sunafusion-agent-shell) for hosted agent read path under workspace/docs/
+COPY docs/WIKI_SYSTEM_OVERVIEW.md docs/WIKI_USAGE_GUIDE.md /app/.openclaw/workspace/docs/
 RUN ls -la /app/.openclaw/workspace/ && ls -la /app/.openclaw/workspace/skills/ 2>/dev/null || echo "WARN: workspace/skills missing"
 
 # Volume-safe workspace: keep a baked copy to seed into a mounted volume
