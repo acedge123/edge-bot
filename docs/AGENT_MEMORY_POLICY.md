@@ -53,6 +53,21 @@ When the agent learns something reusable:
 - if it states a durable link between two entities, create an `entity_relationship`
 - if it creates an obligation or open loop, create a `commitment`
 
+## Prefer composite `POST /learnings` when multiple rows apply
+
+When a single user turn (or your own judgment after reading a message) warrants **both** a narrative learning **and** one or more structured rows, the agent should use **one** Vault call: **`POST /learnings`** with the normal learning fields **plus** optional composite arrays (requires **`owner_id`**):
+
+| Field | Use when |
+|-------|----------|
+| `create_entities` | New or upserted people/orgs/projects/repos/systems/tickets for this fact |
+| `entity_links` | Link this learning to **existing** entity UUIDs with an optional `role` |
+| `create_relationships` | Durable directed edges (`from_entity_id`, `relationship_type`, `to_entity_id`) |
+| `create_commitments` | Open loops / promises (`title`, optional `due_at`, `assigned_entity_id`, …) |
+
+Do **not** rely on a separate keyword-only extractor for this decision: the **LLM** should apply the rules above and in this doc. If the stack includes `memoryExtractor.ts` or similar heuristics, treat those as optional signals only; **judgment** should match this policy and **`workspace/skills/agent-learnings/SKILL.md`**.
+
+Full JSON examples and column detail: **`docs/AGENT_LEARNINGS_SCHEMA.md`**. Operational curl and env: same skill.
+
 The agent should prefer structured memory for:
 - people it interacts with repeatedly
 - projects, repos, systems, and tickets it will revisit
