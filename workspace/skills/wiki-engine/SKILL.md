@@ -57,6 +57,10 @@ Accept: application/json
 
 Full paths and bodies: read **`docs/WIKI_USAGE_GUIDE.md`** in this workspace.
 
+## Bookmarks → wiki (workspace file)
+
+If the user keeps **`workspace/data/bookmarks/bookmarks.jsonl`** (NDJSON), read it from the workspace path and ingest lines into wiki with `POST /sources` (`source_type`: `url` when `url` is set, else `note` with `raw_text`). See **`workspace/data/bookmarks/README.md`**.
+
 ## Guardrails
 
 - Always send `owner_id` the deployment is authorized for.

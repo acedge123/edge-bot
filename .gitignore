@@ -59,5 +59,8 @@ external/
 workspace/data/sponsors/sponsors.json
 workspace/data/sponsors/sponsors.backup.json
 
+# Local bookmarks export (may contain private URLs; use bookmarks.example.jsonl in repo)
+workspace/data/bookmarks/bookmarks.jsonl
+
 # Deploy: packaged runtime (run deploy/package-runtime.sh before build)
 deploy/runtime/
