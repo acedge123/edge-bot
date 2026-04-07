@@ -473,18 +473,25 @@ async function handleJob(job) {
     if (!fromNumber) {
       throw new Error('SMS job missing metadata.from_number');
     }
-    sessionKey = `agent:${agentId}:sms:${tenantId}:${fromNumber}`;
+    sessionKey = `agent:main:sms:${tenantId}:${fromNumber}`;
   } else if (isSlackJob) {
     const slackUser = String(metadata.slack_user || '').trim();
     if (!slackUser) {
       throw new Error('Slack job missing metadata.slack_user');
     }
-    sessionKey = `agent:${agentId}:slack:${tenantId}:${slackUser}`;
+    sessionKey = `agent:main:slack:${tenantId}:${slackUser}`;
   } else {
-    sessionKey = `agent:${agentId}:echelon:${tenantId}`;
+    sessionKey = `agent:main:echelon:${tenantId}`;
   }
 
-  console.log('[echelon-worker] model route (chat.send):', `openclaw:${agentId}`, 'reason=', routed.reason, 'sessionKey=', sessionKey);
+  console.log(
+    '[echelon-worker] model route decision:',
+    `openclaw:${agentId}`,
+    'reason=',
+    routed.reason,
+    'sessionKey=',
+    sessionKey,
+  );
 
   const idempotencyKey = jobId;
 
@@ -508,6 +515,10 @@ async function handleJob(job) {
   await gatewayCall('chat.send', {
     sessionKey,
     message,
+    // Best-effort per-turn model routing while keeping session identity stable.
+    // If the gateway ignores these fields, the call will fall back to the defaults configured in openclaw.json.
+    agentId: `openclaw:${agentId}`,
+    model: `openai/${agentId === 'main-critical' ? 'gpt-5.4' : agentId === 'main-med' ? 'gpt-5.3' : 'gpt-5.4-mini'}`,
     deliver: false,
     idempotencyKey,
     timeoutMs: 15 * 60 * 1000,
