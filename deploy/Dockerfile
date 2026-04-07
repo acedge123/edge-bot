@@ -48,12 +48,12 @@ RUN if [ -d /tmp/deploy/runtime ] && [ -n "$(ls -A /tmp/deploy/runtime 2>/dev/nu
       cp -a /tmp/deploy/runtime-template/. /app/.openclaw/; \
     fi && rm -rf /tmp/deploy
 
-# Force OpenAI gpt-5.2 in image (overrides any packaged/template config)
+# Force OpenAI defaults in image (overrides any packaged/template config)
 # Use agents.defaults only (legacy agent.* key removed)
 RUN if [ -f /app/.openclaw/openclaw.json ]; then \
-      jq 'del(.agent) | .agents.defaults.model.primary = "openai/gpt-5.2" | .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] | .agents.defaults.workspace = "/app/.openclaw/workspace" | .hooks.enabled = true | .hooks.token = "${OPENCLAW_HOOK_TOKEN}" | .gateway.controlUi.allowedOrigins = ["https://edge-bot-production.up.railway.app"] | .gateway.http.endpoints.chatCompletions.enabled = true | .gateway.http.endpoints.chatCompletions.images.allowUrl = true | del(.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback)' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
+      jq 'del(.agent) | .agents.defaults.model.primary = "openai/gpt-5.4-mini" | .agents.defaults.model.fallbacks = ["openai/gpt-5.4","openai/gpt-5.3","openai/gpt-4o-mini"] | .agents.defaults.workspace = "/app/.openclaw/workspace" | .hooks.enabled = true | .hooks.token = "${OPENCLAW_HOOK_TOKEN}" | .gateway.controlUi.allowedOrigins = ["https://edge-bot-production.up.railway.app"] | .gateway.http.endpoints.chatCompletions.enabled = true | .gateway.http.endpoints.chatCompletions.images.allowUrl = true | del(.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback)' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
     else \
-      echo '{"agents":{"defaults":{"workspace":"/app/.openclaw/workspace","model":{"primary":"openai/gpt-5.2","fallbacks":["openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"},"gateway":{"controlUi":{"allowedOrigins":["https://edge-bot-production.up.railway.app"]},"http":{"endpoints":{"chatCompletions":{"enabled":true,"images":{"allowUrl":true}}}}}}' > /app/.openclaw/openclaw.json; \
+      echo '{"agents":{"defaults":{"workspace":"/app/.openclaw/workspace","model":{"primary":"openai/gpt-5.4-mini","fallbacks":["openai/gpt-5.4","openai/gpt-5.3","openai/gpt-4o-mini"]}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"},"gateway":{"controlUi":{"allowedOrigins":["https://edge-bot-production.up.railway.app"]},"http":{"endpoints":{"chatCompletions":{"enabled":true,"images":{"allowUrl":true}}}}}}' > /app/.openclaw/openclaw.json; \
     fi
 
 # Copy workspace (CONFIG.md, scripts, skills incl. repo-map, etc.)

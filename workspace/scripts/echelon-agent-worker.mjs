@@ -33,6 +33,47 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Model routing for gateway /v1/chat/completions.
+ *
+ * - Default cheap: gpt-5.4-mini
+ * - Escalate: gpt-5.3 for code/medium reasoning, gpt-5.4 for security/critical reasoning
+ * - Allow explicit override tags in user text: @model:gpt-5.4, @model:gpt-5.4-mini, @model:gpt-5.3
+ *
+ * Note: The standard (non-attachment) path uses `openclaw chat.send`, which follows the gateway default model.
+ * This router currently applies to the multimodal /v1/chat/completions path (attachments).
+ */
+function pickRoutedModelId(requestText) {
+  const raw = String(requestText || '');
+
+  // Explicit override tag takes precedence.
+  const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
+  if (tag) {
+    if (tag === 'gpt-5.4') return 'openai/gpt-5.4';
+    if (tag === 'gpt-5.4-mini' || tag === 'gpt-5.4mini') return 'openai/gpt-5.4-mini';
+    if (tag === 'gpt-5.3') return 'openai/gpt-5.3';
+  }
+
+  const text = raw.toLowerCase();
+
+  const isCritical = /\b(threat model|security review|sec review|vulnerability|exploit|authz|authorization|privilege|rbac|secrets?|credential|injection|xss|ssrf|rce|critical|incident)\b/.test(
+    text,
+  );
+  if (isCritical) return 'openai/gpt-5.4';
+
+  const isCode = /\b(code|refactor|implement|bug|fix|typescript|javascript|python|sql|dockerfile|pr review|pull request|diff|lint|tests?)\b/.test(
+    text,
+  );
+  if (isCode) return 'openai/gpt-5.3';
+
+  const isMediumReasoning = /\b(design|architecture|trade-?offs|analy[sz]e|root cause|debug|plan)\b/.test(
+    text,
+  );
+  if (isMediumReasoning) return 'openai/gpt-5.3';
+
+  return 'openai/gpt-5.4-mini';
+}
+
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
   if (!existsSync(envPath)) return;
@@ -230,6 +271,8 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
     });
   }
 
+  const routedModel = pickRoutedModelId(requestText);
+
   const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -237,7 +280,7 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
       'Authorization': `Bearer ${GATEWAY_TOKEN}`,
     },
     body: JSON.stringify({
-      model: 'openclaw:main',
+      model: routedModel,
       messages: [{ role: 'user', content }],
     }),
   });

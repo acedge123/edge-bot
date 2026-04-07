@@ -47,16 +47,16 @@ OPENCLAW_HOOK_TOKEN=
 ECHELON_EDGE_URL=
 EOF
 
-# Force OpenAI gpt-5.2 for Railway (override whatever was in ~/.openclaw)
+# Force OpenAI defaults for Railway (override whatever was in ~/.openclaw)
 # Strip legacy agent.* key (use agents.defaults only)
 if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
   jq '
     del(.agent) |
-    .agents.defaults.model.primary = "openai/gpt-5.2" |
-    .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] |
-    (.agents.list[]? | select(.id == "main") | .model) = "openai/gpt-5.2"
+    .agents.defaults.model.primary = "openai/gpt-5.4-mini" |
+    .agents.defaults.model.fallbacks = ["openai/gpt-5.4","openai/gpt-5.3","openai/gpt-4o-mini"] |
+    (.agents.list[]? | select(.id == "main") | .model) = "openai/gpt-5.4-mini"
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
-  echo "Set packaged model to openai/gpt-5.2 for Railway"
+  echo "Set packaged model defaults to openai/gpt-5.4-mini for Railway"
 fi
 
 echo "Done. Runtime packaged in $DEST"
