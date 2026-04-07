@@ -54,7 +54,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     del(.agent) |
     .agents.defaults.model.primary = "openai/gpt-5.4-mini" |
     .agents.defaults.model.fallbacks = ["openai/gpt-5.4","openai/gpt-5.3","openai/gpt-4o-mini"] |
-    (.agents.list[]? | select(.id == "main") | .model) = "openai/gpt-5.4-mini"
+    .agents.list = [{"id":"main","model":"openai/gpt-5.4-mini"},{"id":"main-med","model":"openai/gpt-5.3"},{"id":"main-critical","model":"openai/gpt-5.4"}]
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
   echo "Set packaged model defaults to openai/gpt-5.4-mini for Railway"
 fi

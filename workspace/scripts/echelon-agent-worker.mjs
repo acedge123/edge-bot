@@ -34,24 +34,27 @@ import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 
 /**
- * Model routing for gateway /v1/chat/completions.
+ * Model routing for the hosted agent.
  *
- * - Default cheap: gpt-5.4-mini
- * - Escalate: gpt-5.3 for code/medium reasoning, gpt-5.4 for security/critical reasoning
- * - Allow explicit override tags in user text: @model:gpt-5.4, @model:gpt-5.4-mini, @model:gpt-5.3
+ * Control point: route to a specific OpenClaw agent id that is pre-configured with a backing model.
+ * - `main`         => gpt-5.4-mini (default)
+ * - `main-med`     => gpt-5.3 (code + medium reasoning)
+ * - `main-critical`=> gpt-5.4 (security + critical reasoning)
  *
- * Note: The standard (non-attachment) path uses `openclaw chat.send`, which follows the gateway default model.
- * This router currently applies to the multimodal /v1/chat/completions path (attachments).
+ * Override tags (user text):
+ * - @model:gpt-5.4        => main-critical
+ * - @model:gpt-5.3        => main-med
+ * - @model:gpt-5.4-mini   => main
  */
-function pickRoutedModelId(requestText) {
+function pickRoutedAgent(requestText) {
   const raw = String(requestText || '');
 
   // Explicit override tag takes precedence.
   const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
   if (tag) {
-    if (tag === 'gpt-5.4') return 'openai/gpt-5.4';
-    if (tag === 'gpt-5.4-mini' || tag === 'gpt-5.4mini') return 'openai/gpt-5.4-mini';
-    if (tag === 'gpt-5.3') return 'openai/gpt-5.3';
+    if (tag === 'gpt-5.4') return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.4' };
+    if (tag === 'gpt-5.3') return { agentId: 'main-med', reason: 'forced:@model:gpt-5.3' };
+    if (tag === 'gpt-5.4-mini' || tag === 'gpt-5.4mini') return { agentId: 'main', reason: 'forced:@model:gpt-5.4-mini' };
   }
 
   const text = raw.toLowerCase();
@@ -59,19 +62,19 @@ function pickRoutedModelId(requestText) {
   const isCritical = /\b(threat model|security review|sec review|vulnerability|exploit|authz|authorization|privilege|rbac|secrets?|credential|injection|xss|ssrf|rce|critical|incident)\b/.test(
     text,
   );
-  if (isCritical) return 'openai/gpt-5.4';
+  if (isCritical) return { agentId: 'main-critical', reason: 'heuristic:security/critical' };
 
   const isCode = /\b(code|refactor|implement|bug|fix|typescript|javascript|python|sql|dockerfile|pr review|pull request|diff|lint|tests?)\b/.test(
     text,
   );
-  if (isCode) return 'openai/gpt-5.3';
+  if (isCode) return { agentId: 'main-med', reason: 'heuristic:code' };
 
   const isMediumReasoning = /\b(design|architecture|trade-?offs|analy[sz]e|root cause|debug|plan)\b/.test(
     text,
   );
-  if (isMediumReasoning) return 'openai/gpt-5.3';
+  if (isMediumReasoning) return { agentId: 'main-med', reason: 'heuristic:medium-reasoning' };
 
-  return 'openai/gpt-5.4-mini';
+  return { agentId: 'main', reason: 'default:cheap' };
 }
 
 function loadOpenClawEnv() {
@@ -271,7 +274,9 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
     });
   }
 
-  const routedModel = pickRoutedModelId(requestText);
+  const routed = pickRoutedAgent(requestText);
+  const model = `openclaw:${routed.agentId}`;
+  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason);
 
   const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
     method: 'POST',
@@ -280,7 +285,7 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
       'Authorization': `Bearer ${GATEWAY_TOKEN}`,
     },
     body: JSON.stringify({
-      model: routedModel,
+      model,
       messages: [{ role: 'user', content }],
     }),
   });
@@ -459,22 +464,27 @@ async function handleJob(job) {
   const isSmsJob = source === 'sms';
   const isSlackJob = source === 'slack';
 
+  const routed = pickRoutedAgent(message);
+  const agentId = routed.agentId;
+
   let sessionKey;
   if (isSmsJob) {
     const fromNumber = String(metadata.from_number || '').trim();
     if (!fromNumber) {
       throw new Error('SMS job missing metadata.from_number');
     }
-    sessionKey = `agent:main:sms:${tenantId}:${fromNumber}`;
+    sessionKey = `agent:${agentId}:sms:${tenantId}:${fromNumber}`;
   } else if (isSlackJob) {
     const slackUser = String(metadata.slack_user || '').trim();
     if (!slackUser) {
       throw new Error('Slack job missing metadata.slack_user');
     }
-    sessionKey = `agent:main:slack:${tenantId}:${slackUser}`;
+    sessionKey = `agent:${agentId}:slack:${tenantId}:${slackUser}`;
   } else {
-    sessionKey = `agent:main:echelon:${tenantId}`;
+    sessionKey = `agent:${agentId}:echelon:${tenantId}`;
   }
+
+  console.log('[echelon-worker] model route (chat.send):', `openclaw:${agentId}`, 'reason=', routed.reason, 'sessionKey=', sessionKey);
 
   const idempotencyKey = jobId;
 
