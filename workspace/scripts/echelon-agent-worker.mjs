@@ -492,6 +492,11 @@ async function handleJob(job) {
     'sessionKey=',
     sessionKey,
   );
+  if (agentId !== 'main') {
+    console.log(
+      '[echelon-worker] note: chat.send does not support per-turn model override; escalation applies to attachments (/v1/chat/completions) only unless gateway adds override support.',
+    );
+  }
 
   const idempotencyKey = jobId;
 
@@ -515,10 +520,6 @@ async function handleJob(job) {
   await gatewayCall('chat.send', {
     sessionKey,
     message,
-    // Best-effort per-turn model routing while keeping session identity stable.
-    // If the gateway ignores these fields, the call will fall back to the defaults configured in openclaw.json.
-    agentId: `openclaw:${agentId}`,
-    model: `openai/${agentId === 'main-critical' ? 'gpt-5.4' : agentId === 'main-med' ? 'gpt-5.3' : 'gpt-5.4-mini'}`,
     deliver: false,
     idempotencyKey,
     timeoutMs: 15 * 60 * 1000,
