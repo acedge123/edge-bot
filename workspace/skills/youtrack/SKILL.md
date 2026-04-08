@@ -3,14 +3,16 @@ name: youtrack
 description: |
   Interact with YouTrack (JetBrains issue tracker) via the REST API: list, create, update, and delete issues; read and add comments; search with YouTrack query syntax.
   Use when the user asks to work with YouTrack issues, create bugs/tasks, search the tracker, or add comments.
-metadata: {"clawdbot":{"requires":{"env":["YOUTRACK_BASE_URL","YOUTRACK_TOKEN"]}}}
+metadata: {}
 ---
 
 # YouTrack REST API Skill
 
 Use the [YouTrack REST API](https://www.jetbrains.com/help/youtrack/devportal/youtrack-rest-api.html) to work with issues and comments. The Edge bot has no connected browser; all actions are via HTTP using this skill.
 
-**Env (required):** `YOUTRACK_BASE_URL`, `YOUTRACK_TOKEN`
+**Direct REST env (only if using this skill directly):** `YOUTRACK_BASE_URL`, `YOUTRACK_TOKEN`
+
+**Hosted/Railway default:** prefer the workspace-local skill `youtrack-via-repo-c` which uses Repo C `internal-execute` and does **not** require YouTrack env vars.
 
 - **YOUTRACK_BASE_URL** — Base URL of your YouTrack instance **without** `/api`. Examples:
   - Cloud: `https://your-org.youtrack.cloud`
