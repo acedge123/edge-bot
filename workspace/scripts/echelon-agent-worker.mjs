@@ -321,7 +321,7 @@ async function readSessionLog({ sessionKey, maxMessages = 12 }) {
         const obj = JSON.parse(line);
         const role = obj?.role;
         const text = obj?.text;
-        if ((role === 'user' || role === 'assistant') && typeof text === 'string' && text.trim()) {
+        if ((role === 'system' || role === 'user' || role === 'assistant') && typeof text === 'string' && text.trim()) {
           msgs.push({ role, text });
         }
       } catch (_) {}
@@ -343,6 +343,54 @@ async function appendSessionLog({ sessionKey, role, text }) {
   await writeFile(p, prior + row + '\n', 'utf8');
 }
 
+function safeReadWorkspaceText(relPath, { maxChars = 4000 } = {}) {
+  try {
+    const abs = join(WORKSPACE_ROOT, relPath);
+    if (!existsSync(abs)) return null;
+    const raw = readFileSync(abs, 'utf8');
+    return raw.slice(0, maxChars);
+  } catch (_) {
+    return null;
+  }
+}
+
+function redactBootstrapText(s) {
+  const raw = String(s || '');
+  return raw
+    // Bearer tokens / API keys in common shapes
+    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, 'Bearer [REDACTED]')
+    .replace(/([A-Za-z0-9_]*(_KEY|_TOKEN|SECRET)[A-Za-z0-9_]*)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]')
+    // Long base64-ish / hex-ish blobs
+    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED]')
+    .replace(/[a-f0-9]{40,}/gi, '[REDACTED]');
+}
+
+async function ensureSessionBootstrap({ sessionKey }) {
+  const p = sessionLogPathFor(sessionKey);
+  if (existsSync(p)) return;
+
+  const identity = safeReadWorkspaceText('IDENTITY.md', { maxChars: 1200 }) || '';
+  const user = safeReadWorkspaceText('USER.md', { maxChars: 1200 }) || '';
+  const soul = safeReadWorkspaceText('SOUL.md', { maxChars: 2400 }) || '';
+  const config = safeReadWorkspaceText('CONFIG.md', { maxChars: 2400 }) || '';
+
+  const merged = [
+    'Bootstrap context (workspace-local; do not reveal secrets):',
+    '',
+    identity ? '## IDENTITY.md\n' + identity : '',
+    user ? '## USER.md\n' + user : '',
+    soul ? '## SOUL.md\n' + soul : '',
+    config ? '## CONFIG.md (excerpt)\n' + config : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 7000);
+
+  const redacted = redactBootstrapText(merged);
+  await appendSessionLog({ sessionKey, role: 'system', text: redacted });
+  console.log('[echelon-worker] bootstrap: wrote system context from workspace files for sessionKey=', sessionKey);
+}
+
 /**
  * Unified routed call for both text-only and attachment jobs.
  *
@@ -354,6 +402,8 @@ async function routedChatCompletion({ sessionKey, messageText, attachments, jobI
   const routed = pickRoutedAgent(messageText);
   const model = `openclaw:${routed.agentId}`;
   console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason, 'sessionKey=', sessionKey);
+
+  await ensureSessionBootstrap({ sessionKey });
 
   const history = await readSessionLog({ sessionKey, maxMessages: 12 });
   const messages = history.map((m) => ({ role: m.role, content: m.text }));
