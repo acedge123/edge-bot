@@ -39,12 +39,11 @@ const execFileAsync = promisify(execFile);
  *
  * Control point: route to a specific OpenClaw agent id that is pre-configured with a backing model.
  * - `main`         => gpt-5.4-mini (default)
- * - `main-med`     => gpt-5.3 (code + medium reasoning)
+ * - `main-med`     => gpt-5.4 (code + medium reasoning)
  * - `main-critical`=> gpt-5.4 (security + critical reasoning)
  *
  * Override tags (user text):
  * - @model:gpt-5.4        => main-critical
- * - @model:gpt-5.3        => main-med
  * - @model:gpt-5.4-mini   => main
  */
 function pickRoutedAgent(requestText) {
@@ -54,7 +53,6 @@ function pickRoutedAgent(requestText) {
   const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
   if (tag) {
     if (tag === 'gpt-5.4') return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.4' };
-    if (tag === 'gpt-5.3') return { agentId: 'main-med', reason: 'forced:@model:gpt-5.3' };
     if (tag === 'gpt-5.4-mini' || tag === 'gpt-5.4mini') return { agentId: 'main', reason: 'forced:@model:gpt-5.4-mini' };
   }
 
@@ -284,6 +282,8 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${GATEWAY_TOKEN}`,
+      // OpenClaw v2026.3.28+ may require explicit operator scopes on the OpenAI-compatible HTTP surface.
+      'x-openclaw-scopes': 'operator.read,operator.write',
     },
     body: JSON.stringify({
       model,
