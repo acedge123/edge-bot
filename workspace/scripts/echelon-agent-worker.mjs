@@ -455,6 +455,9 @@ async function routedChatCompletion({ sessionKey, messageText, attachments, jobI
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${GATEWAY_TOKEN}`,
+      // OpenClaw v2026.3.28+ may require explicit operator scopes on the OpenAI-compatible HTTP surface.
+      // Workaround: request operator scopes explicitly for this call.
+      'x-openclaw-scopes': 'operator.read,operator.write',
     },
     body: JSON.stringify({ model, messages }),
   });
