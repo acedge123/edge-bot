@@ -30,6 +30,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { createHash } from 'crypto';
 
 const execFileAsync = promisify(execFile);
 
@@ -302,6 +303,124 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
   return responseText;
 }
 
+function sessionLogPathFor(sessionKey) {
+  const h = createHash('sha256').update(String(sessionKey)).digest('hex').slice(0, 24);
+  return join(WORKSPACE_ROOT, 'tmp', 'session-history', `${h}.jsonl`);
+}
+
+async function readSessionLog({ sessionKey, maxMessages = 12 }) {
+  try {
+    const p = sessionLogPathFor(sessionKey);
+    if (!existsSync(p)) return [];
+    const raw = readFileSync(p, 'utf8');
+    const lines = raw.split('\n').filter(Boolean);
+    const tail = lines.slice(Math.max(0, lines.length - maxMessages));
+    const msgs = [];
+    for (const line of tail) {
+      try {
+        const obj = JSON.parse(line);
+        const role = obj?.role;
+        const text = obj?.text;
+        if ((role === 'user' || role === 'assistant') && typeof text === 'string' && text.trim()) {
+          msgs.push({ role, text });
+        }
+      } catch (_) {}
+    }
+    return msgs;
+  } catch (_) {
+    return [];
+  }
+}
+
+async function appendSessionLog({ sessionKey, role, text }) {
+  const t = String(text || '').trim();
+  if (!t) return;
+  const p = sessionLogPathFor(sessionKey);
+  const dir = join(WORKSPACE_ROOT, 'tmp', 'session-history');
+  await mkdir(dir, { recursive: true });
+  const row = JSON.stringify({ ts: new Date().toISOString(), role, text: t });
+  const prior = existsSync(p) ? readFileSync(p, 'utf8') : '';
+  await writeFile(p, prior + row + '\n', 'utf8');
+}
+
+/**
+ * Unified routed call for both text-only and attachment jobs.
+ *
+ * We do NOT rely on OpenClaw chat.send/history for per-turn model selection (chat.send cannot override model).
+ * Instead, we keep continuity with a small per-session JSONL log on the workspace volume, and call
+ * gateway /v1/chat/completions with the routed agent id (openclaw:<agentId>).
+ */
+async function routedChatCompletion({ sessionKey, messageText, attachments, jobId }) {
+  const routed = pickRoutedAgent(messageText);
+  const model = `openclaw:${routed.agentId}`;
+  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason, 'sessionKey=', sessionKey);
+
+  const history = await readSessionLog({ sessionKey, maxMessages: 12 });
+  const messages = history.map((m) => ({ role: m.role, content: m.text }));
+
+  // Current user content
+  const atts = Array.isArray(attachments) ? attachments : [];
+  if (atts.length > 0) {
+    // Reuse the existing attachment formatter (text + image_url + file previews).
+    const content = [{ type: 'text', text: messageText }];
+    const picked = atts.slice(0, 4);
+    for (const att of picked) {
+      const url = att?.url ? String(att.url) : '';
+      const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
+      if (csvEligible) {
+        const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
+        const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: 2_000_000 });
+        if (!fetched) {
+          content.push({ type: 'text', text: `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL.)\n` });
+          continue;
+        }
+        const saved = await persistCsvToWorkspace({
+          jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
+          serial: 0,
+          displayName: name,
+          utf8Text: fetched.text,
+          truncatedByCap: fetched.truncatedByCap,
+        });
+        const preview = fetched.text.slice(0, 80_000);
+        let block = `\n\n[Attached file: ${name}]\n`;
+        if (saved) block += `Full CSV saved at: ${saved.rel}\n`;
+        block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
+        content.push({ type: 'text', text: block });
+        continue;
+      }
+      if (att?.type === 'image' && url) {
+        content.push({ type: 'image_url', image_url: { url } });
+      }
+    }
+    messages.push({ role: 'user', content });
+  } else {
+    messages.push({ role: 'user', content: messageText });
+  }
+
+  // Persist user message before calling.
+  await appendSessionLog({ sessionKey, role: 'user', text: messageText });
+
+  const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GATEWAY_TOKEN}`,
+    },
+    body: JSON.stringify({ model, messages }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`/v1/chat/completions ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const msg = data?.choices?.[0]?.message;
+  const text = msg?.content;
+  const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
+
+  await appendSessionLog({ sessionKey, role: 'assistant', text: responseText });
+  return responseText;
+}
+
 function looksLikeCsv(att) {
   const filename = String(att?.filename || att?.name || '').toLowerCase();
   const mime = String(att?.mime_type || att?.mimeType || '').toLowerCase();
@@ -500,49 +619,8 @@ async function handleJob(job) {
 
   const idempotencyKey = jobId;
 
-  // When job has image attachments, use /v1/chat/completions with multimodal content instead of chat.send
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  if (attachments.length > 0) {
-    console.log('[echelon-worker] job', jobId, 'using /v1/chat/completions with', attachments.length, 'attachment(s)');
-    return gatewayChatCompletionsWithImages({ requestText: message, attachments, jobId });
-  }
-
-  // Text-only: existing chat.send + chat.history flow
-  let baselineLastTs = 0;
-  try {
-    const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
-    const msgs = baseline?.messages || [];
-    baselineLastTs = [...msgs].reverse().find((m) => m.role === 'assistant')?.timestamp || 0;
-  } catch (_) {
-    // No history yet
-  }
-
-  await gatewayCall('chat.send', {
-    sessionKey,
-    message,
-    deliver: false,
-    idempotencyKey,
-    timeoutMs: 15 * 60 * 1000,
-  }, { timeoutMs: 70_000 });
-
-  const deadline = Date.now() + (5 * 60 * 1000);
-  while (Date.now() < deadline) {
-    const hist = await gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 });
-    const msgs = hist?.messages || [];
-
-    const lastNew = [...msgs]
-      .reverse()
-      .find((m) => m.role === 'assistant' && (m.timestamp || 0) > baselineLastTs && Array.isArray(m.content));
-
-    const text = lastNew?.content?.map((c) => c?.text).filter(Boolean).join('')?.trim() || '';
-    if (text) {
-      return text;
-    }
-
-    await new Promise((r) => setTimeout(r, 750));
-  }
-
-  throw new Error('Timeout waiting for agent response');
+  return routedChatCompletion({ sessionKey, messageText: message, attachments, jobId, idempotencyKey });
 }
 
 async function runLoop() {
