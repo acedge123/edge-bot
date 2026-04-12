@@ -2,6 +2,10 @@
 
 Package the OpenClaw gateway + runtime for hosted deployment so Codex (or any agent) can deploy it to Railway.
 
+**Railway-specific facts (volumes, domains):** keep **[`RAILWAY_RUNTIME.md`](./RAILWAY_RUNTIME.md)** updated; they are not fully captured in `railway.json`.
+
+**Control UI / CORS:** the image bakes `gateway.controlUi.allowedOrigins` from the Docker build arg **`CONTROL_UI_ALLOWED_ORIGINS`** (default: current prod Railway URL). For a **new** Railway service, set this build arg to that service’s canonical `https://…` origin so the Control UI loads. Existing prod needs **no** Railway change if you keep the default.
+
 ## What Gets Packaged
 
 | Source | Destination | Excluded |

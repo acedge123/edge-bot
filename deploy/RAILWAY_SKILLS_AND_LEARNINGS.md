@@ -2,6 +2,8 @@
 
 Your hosted agent needs the same capabilities as your local agent. Here's what to do.
 
+**Production topology (volumes, mount paths, domains):** maintain **[`RAILWAY_RUNTIME.md`](./RAILWAY_RUNTIME.md)** so agents and teammates do not assume ephemeral disk. Railway volumes are not expressed in `railway.json`.
+
 ## 1. Environment Variables (Required)
 
 Add these to Railway so the agent can access external services:
@@ -34,7 +36,9 @@ No need to copy files — learnings are already in Supabase.
 
 ## 4. Redeploys wipe the filesystem (important)
 
-**By default, a Railway redeploy replaces the container.** The new container starts from the image — any files the agent wrote at runtime (e.g. `MEMORY.md`, `memory/*`, cloned `repos/`, workspace edits) are **gone**. There is no persistent disk unless you attach a **Railway volume** to a path (e.g. `/app/.openclaw/workspace` or `/app/.openclaw`).
+**By default, a Railway redeploy replaces the container.** The new container starts from the image — any files the agent wrote at runtime (e.g. `MEMORY.md`, `memory/*`, cloned `repos/`, workspace edits) are **gone** on paths that are **not** backed by a volume.
+
+**This deployment uses a persistent Railway volume** for the OpenClaw workspace path — see **[`RAILWAY_RUNTIME.md`](./RAILWAY_RUNTIME.md)** for the canonical mount path and last-verified date. Without a volume (or if the mount path differs), treat disk as ephemeral.
 
 - **Ephemeral (default):** Agent can write files and clone repos; they exist until the next redeploy (or container restart, depending on Railway’s behavior).
 - **Durable memory:** Use **Agent Vault** (Supabase) so learnings persist regardless of redeploys, or attach a Railway volume to the workspace path if you want on-disk memory to survive redeploys.
