@@ -88,8 +88,6 @@ if (checkOnly) {
     }
     process.exit(0);
   })();
-} else {
-  runLoop();
 }
 
 /** Claim one job from agent-vault. Returns { job, payload } or null. */

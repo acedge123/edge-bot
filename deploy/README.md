@@ -55,7 +55,7 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | Variable | Purpose |
 |----------|---------|
 | `OPENCLAW_GATEWAY_TOKEN` | Webhook/auth token (generate: `openssl rand -hex 24`) |
-| `OPENAI_API_KEY` | OpenAI API key (default model: gpt-5.2) |
+| `OPENAI_API_KEY` | OpenAI API key (image default: `openai/gpt-5.4-mini`; fallbacks `gpt-5.4`, `gpt-4o-mini` — see `deploy/Dockerfile`) |
 | `ANTHROPIC_API_KEY` | Claude API key; only if you override to use Claude |
 | `OPENROUTER_API_KEY` | Optional; if using OpenRouter |
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |

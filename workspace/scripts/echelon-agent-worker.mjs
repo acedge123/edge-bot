@@ -136,8 +136,6 @@ if (checkOnly) {
     }
     process.exit(0);
   })();
-} else {
-  runLoop();
 }
 
 /** Claim one job from Echelon agent-next. Returns job or null. */
@@ -414,6 +412,7 @@ async function routedChatCompletion({ sessionKey, messageText, attachments, jobI
     // Reuse the existing attachment formatter (text + image_url + file previews).
     const content = [{ type: 'text', text: messageText }];
     const picked = atts.slice(0, 4);
+    let csvSerial = 0;
     for (const att of picked) {
       const url = att?.url ? String(att.url) : '';
       const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
@@ -426,7 +425,7 @@ async function routedChatCompletion({ sessionKey, messageText, attachments, jobI
         }
         const saved = await persistCsvToWorkspace({
           jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
-          serial: 0,
+          serial: csvSerial++,
           displayName: name,
           utf8Text: fetched.text,
           truncatedByCap: fetched.truncatedByCap,

@@ -55,6 +55,9 @@ Thumbs.db
 # Local clones for audits / scratch (do not commit)
 external/
 
+# Local scratch / mail exports (PII; do not commit)
+workspace/tmp/
+
 # Local sponsors DB (may contain PII; use sponsors.schema.example.json in repo)
 workspace/data/sponsors/sponsors.json
 workspace/data/sponsors/sponsors.backup.json
