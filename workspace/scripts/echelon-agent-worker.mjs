@@ -14,6 +14,7 @@
  *   CIA_ANON_KEY       - Repo C anonymous API key
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
+ *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
  *
  * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
  * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
@@ -25,7 +26,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
@@ -105,6 +106,41 @@ const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 1
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
 const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 const WORKSPACE_ROOT = (process.env.OPENCLAW_WORKSPACE || '/app/.openclaw/workspace').replace(/\/+$/, '');
+
+/** Durable idempotency markers (Slack/SMS) — survives restarts when workspace is on a Railway volume. */
+const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery');
+
+function safeJobIdForPath(jobId) {
+  return String(jobId || 'unknown').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'unknown';
+}
+
+function readDeliveryMarker(kind, jobId) {
+  const p = join(ECHELON_DELIVERY_DIR(), `${kind}-${safeJobIdForPath(jobId)}.json`);
+  if (!existsSync(p)) return null;
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Atomic write so a crash mid-write does not leave a complete marker. */
+async function writeDeliveryMarker(kind, jobId, extraFields) {
+  const dir = ECHELON_DELIVERY_DIR();
+  await mkdir(dir, { recursive: true });
+  const base = `${kind}-${safeJobIdForPath(jobId)}.json`;
+  const finalPath = join(dir, base);
+  const tmpPath = join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
+  const payload = JSON.stringify({
+    v: 1,
+    kind,
+    jobId: String(jobId),
+    ...extraFields,
+    savedAt: new Date().toISOString(),
+  });
+  await writeFile(tmpPath, payload, 'utf8');
+  await rename(tmpPath, finalPath);
+}
 
 // Repo C env vars for SMS sending
 const CIA_URL = (process.env.CIA_URL || '').replace(/\/+$/, '');
@@ -669,10 +705,8 @@ async function handleJob(job) {
     );
   }
 
-  const idempotencyKey = jobId;
-
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  return routedChatCompletion({ sessionKey, messageText: message, attachments, jobId, idempotencyKey });
+  return routedChatCompletion({ sessionKey, messageText: message, attachments, jobId });
 }
 
 async function runLoop() {
@@ -714,16 +748,21 @@ async function runLoop() {
             throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
           }
 
-          try {
-            await sendSmsViaRepoC({
-              tenantId: job.tenant_id || job.tenantId || 'default',
-              toNumber: fromNumber,
-              messageText: responseText,
-            });
-            console.log('[echelon-worker] job', job.id, '→ SMS sent to', fromNumber);
-          } catch (smsErr) {
-            // SMS send failed - ack as failed but preserve response_text
-            throw new Error(`SMS send failed: ${smsErr.message}`);
+          const smsMarker = readDeliveryMarker('sms', job.id);
+          if (smsMarker?.v === 1 && smsMarker.kind === 'sms' && String(smsMarker.to) === fromNumber) {
+            console.log('[echelon-worker] job', job.id, 'SMS delivery already recorded; skipping Repo C send');
+          } else {
+            try {
+              await sendSmsViaRepoC({
+                tenantId: job.tenant_id || job.tenantId || 'default',
+                toNumber: fromNumber,
+                messageText: responseText,
+              });
+              await writeDeliveryMarker('sms', job.id, { to: fromNumber });
+              console.log('[echelon-worker] job', job.id, '→ SMS sent to', fromNumber);
+            } catch (smsErr) {
+              throw new Error(`SMS send failed: ${smsErr.message}`);
+            }
           }
         }
 
@@ -733,30 +772,47 @@ async function runLoop() {
           const slackThreadTs = metadata.slack_thread_ts;
           console.log('[echelon-worker] job', job.id, 'Slack job → posting to slack-reply channel=%s thread_ts=%s', slackChannel || '(missing)', slackThreadTs || '(none)');
           if (slackChannel) {
-            const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
-            const slackReplyBody = {
-              job_id: job.id,
-              text: responseText,
-              slack_channel: slackChannel,
-              slack_thread_ts: slackThreadTs || undefined,
-            };
-            try {
-              const replyRes = await fetch(slackReplyUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
-                },
-                body: JSON.stringify(slackReplyBody),
-              });
-              const replyBody = await replyRes.text();
-              if (!replyRes.ok) {
-                console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
-                throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
+            const slackMarker = readDeliveryMarker('slack', job.id);
+            const markerChannel = slackMarker?.slack_channel != null ? String(slackMarker.slack_channel) : '';
+            const markerThread =
+              slackMarker?.slack_thread_ts != null ? String(slackMarker.slack_thread_ts) : '';
+            const sameThread =
+              slackMarker?.v === 1 &&
+              slackMarker.kind === 'slack' &&
+              markerChannel === String(slackChannel) &&
+              markerThread === String(slackThreadTs || '');
+            if (sameThread) {
+              console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
+            } else {
+              const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
+              const slackReplyBody = {
+                job_id: job.id,
+                text: responseText,
+                slack_channel: slackChannel,
+                slack_thread_ts: slackThreadTs || undefined,
+              };
+              try {
+                const replyRes = await fetch(slackReplyUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+                  },
+                  body: JSON.stringify(slackReplyBody),
+                });
+                const replyBody = await replyRes.text();
+                if (!replyRes.ok) {
+                  console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
+                  throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
+                }
+                await writeDeliveryMarker('slack', job.id, {
+                  slack_channel: slackChannel,
+                  slack_thread_ts: slackThreadTs || '',
+                });
+                console.log('[echelon-worker] job', job.id, '→ Slack reply sent (status %s)', replyRes.status);
+              } catch (slackErr) {
+                throw new Error(`Slack reply failed: ${slackErr.message}`);
               }
-              console.log('[echelon-worker] job', job.id, '→ Slack reply sent (status %s)', replyRes.status);
-            } catch (slackErr) {
-              throw new Error(`Slack reply failed: ${slackErr.message}`);
             }
           } else {
             console.warn('[echelon-worker] job', job.id, 'Slack job missing slack_channel, skipping reply');

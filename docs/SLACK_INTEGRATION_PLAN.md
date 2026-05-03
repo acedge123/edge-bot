@@ -75,6 +75,8 @@ User types in Slack (channel or DM)
 
 ### 1.2 New Edge Function: `slack-reply`
 
+**Idempotency (recommended on Echelon):** If `slack-reply` is retried after a successful `chat.postMessage` but before `agent-ack`, the same `job_id` must not post twice. Prefer storing `slack_ts` (or a `posted` flag) on the job row and short-circuit when already set. The Railway worker also writes **`workspace/tmp/echelon-delivery/slack-<jobId>.json`** after a successful reply when the workspace is volume-backed, so duplicate deliveries are skipped without Echelon changes (best-effort; Echelon-side dedupe is still ideal for multi-replica workers).
+
 **File:** `supabase/functions/slack-reply/index.ts`
 **Config:** `verify_jwt = false`
 **Auth:** Bearer `AGENT_HOSTED_EDGE_KEY` (same as agent-next/agent-ack)
