@@ -55,6 +55,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.ownership = "explicit" |
     .agents.defaults.model.primary = "openai/gpt-4o-mini" |
     .agents.defaults.model.fallbacks = [] |
+    .agents.defaults.systemAgent.agentId = "main" |
     .agents.entries = {"main":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"}} |
     del(.agents.list)
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
