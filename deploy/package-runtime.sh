@@ -52,11 +52,13 @@ EOF
 if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
   jq '
     del(.agent) |
-    .agents.defaults.model.primary = "openai/gpt-5.4-mini" |
-    .agents.defaults.model.fallbacks = ["openai/gpt-5.4","openai/gpt-4o-mini"] |
-    .agents.list = [{"id":"main","model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},{"id":"main-med","model":"openai/gpt-5.4","workspace":"/app/.openclaw/workspace"},{"id":"main-critical","model":"openai/gpt-5.4","workspace":"/app/.openclaw/workspace"}]
+    .agents.ownership = "explicit" |
+    .agents.defaults.model.primary = "openai/gpt-4o-mini" |
+    .agents.defaults.model.fallbacks = [] |
+    .agents.entries = {"main":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"}} |
+    del(.agents.list)
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
-  echo "Set packaged model defaults to openai/gpt-5.4-mini for Railway"
+  echo "Set packaged model defaults to openai/gpt-4o-mini for Railway"
 fi
 
 echo "Done. Runtime packaged in $DEST"
