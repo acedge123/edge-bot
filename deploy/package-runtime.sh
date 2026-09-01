@@ -58,6 +58,8 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.systemAgent.agentId = "main" |
     .agents.entries = {"main":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"}} |
     del(.agents.list) |
+    .plugins.entries.openai.enabled = true |
+    .plugins.deny = ["brave","codex"] |
     .gateway.mode = "local" |
     .gateway.bind = "lan"
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
