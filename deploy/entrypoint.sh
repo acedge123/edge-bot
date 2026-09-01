@@ -101,7 +101,7 @@ export OPENCLAW_GATEWAY_PORT="${PORT}"
 # OpenClaw gateway CLI uses --bind (not --host) with a bind mode.
 # For Railway, bind on all interfaces so the service port is reachable.
 # Valid modes include: loopback, lan, tailnet, auto, custom.
-openclaw gateway --bind lan --port "${PORT}" --allow-unconfigured &
+openclaw gateway run --bind lan --port "${PORT}" --allow-unconfigured &
 sleep 5
 
 node "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" &
