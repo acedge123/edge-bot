@@ -52,14 +52,27 @@ if [ ! -f "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" ]; then
   mkdir -p "${WORKSPACE_DIR}"
   cp -a "${BAKED_WORKSPACE_DIR}/." "${WORKSPACE_DIR}/"
 else
-  echo "[entrypoint] syncing workspace/scripts, workspace/skills, and workspace/docs from image (so worker, skills, and wiki reference docs are current)"
-  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills" "${WORKSPACE_DIR}/docs"
+  echo "[entrypoint] syncing workspace/scripts, workspace/skills, workspace/docs, and workspace/.clawhub from image"
+  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills" "${WORKSPACE_DIR}/docs" "${WORKSPACE_DIR}/.clawhub"
   cp -a "${BAKED_WORKSPACE_DIR}/scripts/." "${WORKSPACE_DIR}/scripts/"
   cp -a "${BAKED_WORKSPACE_DIR}/skills/." "${WORKSPACE_DIR}/skills/"
+  if [ -d "${BAKED_WORKSPACE_DIR}/.clawhub" ]; then
+    cp -a "${BAKED_WORKSPACE_DIR}/.clawhub/." "${WORKSPACE_DIR}/.clawhub/"
+  fi
   if [ -d "${BAKED_WORKSPACE_DIR}/docs" ]; then
     cp -a "${BAKED_WORKSPACE_DIR}/docs/." "${WORKSPACE_DIR}/docs/"
   fi
 fi
+
+# This hosted runtime only needs the reviewed Mom Walk manage command path.
+# Remove local skill folders that can cause OpenClaw to rehydrate browser/search
+# plugin packages requiring interactive capability consent.
+for unused_skill_dir in brave-search agent-browser cursor-agent; do
+  if [ -d "${WORKSPACE_DIR}/skills/${unused_skill_dir}" ]; then
+    rm -rf "${WORKSPACE_DIR}/skills/${unused_skill_dir}"
+    echo "[entrypoint] removed unused hosted skill ${unused_skill_dir}"
+  fi
+done
 
 # OpenClaw 2026.8 migrates legacy cron jobs into SQLite during startup and
 # requires ${OPENCLAW_STATE_DIR}/cron to be a real directory, not a symlink.
