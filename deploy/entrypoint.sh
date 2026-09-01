@@ -79,16 +79,14 @@ fi
 
 configure_roles_anywhere
 
-# The hosted Mom Walk manage path does not require these stock plugins. In a
-# headless Railway container they can block gateway readiness by requesting
-# interactive capability consent, so keep them disabled instead of accepting.
-for plugin_id in brave codex; do
-  if openclaw plugins disable "${plugin_id}" >/dev/null 2>&1; then
-    echo "[entrypoint] disabled OpenClaw plugin ${plugin_id}"
-  else
-    echo "[entrypoint] OpenClaw plugin ${plugin_id} not disabled or not present"
-  fi
-done
+# Rebuild the persisted registry from actual plugin manifests. Railway keeps
+# OpenClaw state on a volume, so stale plugin records can survive image updates
+# and block gateway readiness with capability-consent prompts.
+openclaw plugins registry --refresh >/dev/null
+echo "[entrypoint] refreshed OpenClaw plugin registry"
+
+openclaw plugins doctor >/dev/null
+echo "[entrypoint] OpenClaw plugin checks passed"
 
 # Exec approvals are host-local state. Seed the reviewed binary on every
 # container start so headless Railway sessions do not depend on UI approvals.
