@@ -74,13 +74,13 @@ After deploy, send a message like "Find a creator who likes fitness and add to a
 
 - **Ephemeral disk:** Each Railway redeploy starts a **new** container from the image. Anything written under `/app/.openclaw` **except** what is on a **persistent volume** is reset.
 - **Repo does not ship cron by default:** `.gitignore` excludes `cron/` under the workspace; `deploy/runtime-template/` has **no** cron bundle. The Docker image only includes cron if `deploy/package-runtime.sh` copied it from your laptop’s `~/.openclaw/cron` **and** that folder was present in `deploy/runtime/` at build time (and `deploy/runtime/` itself is usually not committed).
-- **Entrypoint** (`deploy/entrypoint.sh`) re-syncs workspace `scripts/` and `skills/` from the image **and** ensures **`/app/.openclaw/cron` → `/app/.openclaw/workspace/cron`** (symlink) so OpenClaw’s scheduler reads `jobs.json` from the **volume-backed** `workspace/cron/` directory. Without that symlink, a workspace-only volume leaves the canonical **`cron/`** on ephemeral disk and jobs disappear on redeploy.
+- **Entrypoint** (`deploy/entrypoint.sh`) re-syncs workspace `scripts/` and `skills/` from the image. For OpenClaw 2026.8+, keep **`/app/.openclaw/cron`** as a real directory because startup migrations reject a symlink there. If legacy **`/app/.openclaw/workspace/cron/jobs.json`** exists on the volume, copy it into the real cron directory for migration.
 
 **Ways to make cron “permanent”**
 
 | Approach | Behavior |
 |----------|----------|
-| **Workspace volume + entrypoint symlink (this repo)** | Mount the volume on **`/app/.openclaw/workspace`**. `entrypoint.sh` creates `workspace/cron` and symlinks **`${OPENCLAW_STATE_DIR}/cron`** → **`workspace/cron`** on every boot. |
+| **Workspace volume + startup cron migration (this repo)** | Mount the volume on **`/app/.openclaw/workspace`**. `entrypoint.sh` creates a real **`${OPENCLAW_STATE_DIR}/cron`** directory and copies legacy **`workspace/cron/jobs.json`** into it for OpenClaw's SQLite migration when needed. |
 | **Railway volume on `/app/.openclaw`** | Entire state tree on disk; cron survives without a symlink. Heavier migration if you started with workspace-only. |
 | **Version cron in the image** | Check in a **template** under the repo (e.g. extend `deploy/runtime-template/` or a new `deploy/openclaw-cron/` tree) and **COPY** it in the Dockerfile into `/app/.openclaw/cron/` after the runtime copy. Rebuild on every job change. (Confirm exact filenames with your OpenClaw version.) |
 | **External scheduler** | GitHub Actions `schedule`, Railway’s cron add-on, or another service **POSTs** to your gateway (e.g. wake/hook) on a cadence. No dependency on OpenClaw’s internal `cron list`. |
