@@ -79,6 +79,21 @@ fi
 
 configure_roles_anywhere
 
+# Remove empty plugin project folders left behind by older OpenClaw installs.
+# These stale records can trigger capability-consent repair even though the
+# hosted Mom Walk manage runtime does not use the plugins.
+for stale_plugin_project in \
+  "${OPENCLAW_STATE_DIR}"/npm/projects/openclaw-brave-plugin-* \
+  "${OPENCLAW_STATE_DIR}"/npm/projects/openclaw-codex-*; do
+  [ -d "${stale_plugin_project}" ] || continue
+  if [ -z "$(find "${stale_plugin_project}" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+    rm -rf "${stale_plugin_project}"
+    echo "[entrypoint] removed empty stale plugin project ${stale_plugin_project}"
+  else
+    echo "[entrypoint] left non-empty plugin project in place: ${stale_plugin_project}"
+  fi
+done
+
 # Rebuild the persisted registry from actual plugin manifests. Railway keeps
 # OpenClaw state on a volume, so stale plugin records can survive image updates
 # and block gateway readiness with capability-consent prompts.

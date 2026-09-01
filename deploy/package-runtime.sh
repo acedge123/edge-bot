@@ -57,7 +57,9 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.model.fallbacks = [] |
     .agents.defaults.systemAgent.agentId = "main" |
     .agents.entries = {"main":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-4o-mini","workspace":"/app/.openclaw/workspace"}} |
-    del(.agents.list)
+    del(.agents.list) |
+    .gateway.mode = "local" |
+    .gateway.bind = "lan"
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
   echo "Set packaged model defaults to openai/gpt-4o-mini for Railway"
 fi
