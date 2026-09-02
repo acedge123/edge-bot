@@ -116,6 +116,17 @@ echo "[entrypoint] refreshed OpenClaw plugin registry"
 openclaw update repair --yes --no-restart --accept-capabilities >/dev/null
 echo "[entrypoint] OpenClaw update repair passed"
 
+# The OpenAI profile must exist in auth-profiles.json, not only in
+# openclaw.json. Import the Railway-provided key without writing it to logs.
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  for agent_id in main main-med main-critical; do
+    printf '%s' "${OPENAI_API_KEY}" | openclaw models auth paste-api-key --provider openai --profile-id openai:default --agent "${agent_id}" >/dev/null
+  done
+  echo "[entrypoint] imported OPENAI_API_KEY into OpenClaw auth profiles"
+else
+  echo "[entrypoint] OPENAI_API_KEY is not set; OpenAI chat completions will fail" >&2
+fi
+
 # Exec approvals are host-local state. Seed the reviewed binary on every
 # container start so headless Railway sessions do not depend on UI approvals.
 for agent_id in main main-med main-critical; do
