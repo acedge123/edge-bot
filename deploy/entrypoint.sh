@@ -113,8 +113,8 @@ done
 openclaw plugins registry --refresh >/dev/null
 echo "[entrypoint] refreshed OpenClaw plugin registry"
 
-openclaw plugins doctor >/dev/null
-echo "[entrypoint] OpenClaw plugin checks passed"
+openclaw update repair --yes --no-restart --accept-capabilities >/dev/null
+echo "[entrypoint] OpenClaw update repair passed"
 
 # Exec approvals are host-local state. Seed the reviewed binary on every
 # container start so headless Railway sessions do not depend on UI approvals.
