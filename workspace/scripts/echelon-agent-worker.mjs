@@ -15,9 +15,11 @@
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
+ *   SIGNAL_APPROVAL_SLACK_CHANNEL - Slack channel for approval-required app signals (default C0BVBR6029Y).
  *
  * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
  * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
+ * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
  *
  * Image attachments: Jobs with metadata.attachments (image URLs) use POST /v1/chat/completions on the gateway
  * with multimodal content (text + image_url) instead of chat.send.
@@ -106,12 +108,37 @@ const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 1
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
 const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 const WORKSPACE_ROOT = (process.env.OPENCLAW_WORKSPACE || '/app/.openclaw/workspace').replace(/\/+$/, '');
+const SIGNAL_APPROVAL_SLACK_CHANNEL = (
+  process.env.SIGNAL_APPROVAL_SLACK_CHANNEL ||
+  process.env.SLACK_OPS_CHANNEL_ID ||
+  process.env.SLACK_OPS_CHANNEL_NAME ||
+  'C0BVBR6029Y'
+).trim();
 
 /** Durable idempotency markers (Slack/SMS) — survives restarts when workspace is on a Railway volume. */
 const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery');
 
 function safeJobIdForPath(jobId) {
   return String(jobId || 'unknown').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'unknown';
+}
+
+function isTruthyMetadata(value) {
+  if (value === true) return true;
+  const text = String(value || '').trim().toLowerCase();
+  return text === 'true' || text === '1' || text === 'yes';
+}
+
+function isApprovalRequiredSignalJob(metadata, messageText = '') {
+  const source = String(metadata?.source || '').trim();
+  const hasSignalIdentity = source === 'app_signal' || !!metadata?.signal_event_id || !!metadata?.signal_type;
+  if (!hasSignalIdentity) return false;
+
+  return (
+    isTruthyMetadata(metadata?.requires_approval) ||
+    isTruthyMetadata(metadata?.triage_only) ||
+    String(metadata?.route || '').trim() === 'approval_required' ||
+    /\bAPPROVAL REQUIRED\b/i.test(String(messageText || ''))
+  );
 }
 
 function readDeliveryMarker(kind, jobId) {
@@ -159,6 +186,7 @@ if (checkOnly) {
   console.log('  AGENT_HOSTED_EDGE_KEY:', AGENT_EDGE_KEY ? '***set***' : '(missing)');
   console.log('  GATEWAY_HTTP_URL:', GATEWAY_HTTP_URL);
   console.log('  WORKER_ID:', WORKER_ID);
+  console.log('  SIGNAL_APPROVAL_SLACK_CHANNEL:', SIGNAL_APPROVAL_SLACK_CHANNEL || '(missing)');
   console.log('  CIA_URL:', CIA_URL || '(missing)');
   console.log('  CIA_ANON_KEY:', CIA_ANON_KEY ? '***set***' : '(missing)');
   console.log('  EXECUTOR_SECRET:', EXECUTOR_SECRET ? '***set***' : '(missing)');
@@ -643,6 +671,62 @@ async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
   return res;
 }
 
+async function sendSlackReply({ job, responseText, slackChannel, slackThreadTs = '' }) {
+  const channel = String(slackChannel || '').trim();
+  const threadTs = String(slackThreadTs || '').trim();
+  if (!channel) {
+    throw new Error('Slack delivery requires a non-empty channel');
+  }
+
+  console.log(
+    '[echelon-worker] job',
+    job.id,
+    'Slack delivery -> channel=%s thread_ts=%s',
+    channel,
+    threadTs || '(none)',
+  );
+
+  const slackMarker = readDeliveryMarker('slack', job.id);
+  const markerChannel = slackMarker?.slack_channel != null ? String(slackMarker.slack_channel) : '';
+  const markerThread = slackMarker?.slack_thread_ts != null ? String(slackMarker.slack_thread_ts) : '';
+  const sameThread =
+    slackMarker?.v === 1 &&
+    slackMarker.kind === 'slack' &&
+    markerChannel === channel &&
+    markerThread === threadTs;
+
+  if (sameThread) {
+    console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
+    return;
+  }
+
+  const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
+  const replyRes = await fetch(slackReplyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+    },
+    body: JSON.stringify({
+      job_id: job.id,
+      text: responseText,
+      slack_channel: channel,
+      slack_thread_ts: threadTs || undefined,
+    }),
+  });
+  const replyBody = await replyRes.text();
+  if (!replyRes.ok) {
+    console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
+    throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
+  }
+
+  await writeDeliveryMarker('slack', job.id, {
+    slack_channel: channel,
+    slack_thread_ts: threadTs,
+  });
+  console.log('[echelon-worker] job', job.id, '-> Slack reply sent (status %s)', replyRes.status);
+}
+
 /**
  * Process one Echelon job: send to agent via chat, get response, ack.
  * Uses chat.send + chat.history to capture the agent's reply for response_text.
@@ -733,7 +817,15 @@ async function runLoop() {
         metadata = metadata || {};
 
         const source = String(metadata.source || '').trim();
-        console.log('[echelon-worker] job', job.id, 'source=%s slack_channel=%s', source || '(none)', metadata.slack_channel || '(none)');
+        const approvalSignalJob = isApprovalRequiredSignalJob(metadata, job.request_text || job.text || '');
+        console.log(
+          '[echelon-worker] job',
+          job.id,
+          'source=%s slack_channel=%s approval_signal=%s',
+          source || '(none)',
+          metadata.slack_channel || '(none)',
+          approvalSignalJob ? 'yes' : 'no',
+        );
 
         // For SMS jobs, send reply via Repo C before acking
         const isSmsJob = source === 'sms';
@@ -767,56 +859,15 @@ async function runLoop() {
         }
 
         const isSlackJob = source === 'slack';
-        if (isSlackJob) {
-          const slackChannel = metadata.slack_channel;
-          const slackThreadTs = metadata.slack_thread_ts;
-          console.log('[echelon-worker] job', job.id, 'Slack job → posting to slack-reply channel=%s thread_ts=%s', slackChannel || '(missing)', slackThreadTs || '(none)');
-          if (slackChannel) {
-            const slackMarker = readDeliveryMarker('slack', job.id);
-            const markerChannel = slackMarker?.slack_channel != null ? String(slackMarker.slack_channel) : '';
-            const markerThread =
-              slackMarker?.slack_thread_ts != null ? String(slackMarker.slack_thread_ts) : '';
-            const sameThread =
-              slackMarker?.v === 1 &&
-              slackMarker.kind === 'slack' &&
-              markerChannel === String(slackChannel) &&
-              markerThread === String(slackThreadTs || '');
-            if (sameThread) {
-              console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
-            } else {
-              const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
-              const slackReplyBody = {
-                job_id: job.id,
-                text: responseText,
-                slack_channel: slackChannel,
-                slack_thread_ts: slackThreadTs || undefined,
-              };
-              try {
-                const replyRes = await fetch(slackReplyUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
-                  },
-                  body: JSON.stringify(slackReplyBody),
-                });
-                const replyBody = await replyRes.text();
-                if (!replyRes.ok) {
-                  console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
-                  throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
-                }
-                await writeDeliveryMarker('slack', job.id, {
-                  slack_channel: slackChannel,
-                  slack_thread_ts: slackThreadTs || '',
-                });
-                console.log('[echelon-worker] job', job.id, '→ Slack reply sent (status %s)', replyRes.status);
-              } catch (slackErr) {
-                throw new Error(`Slack reply failed: ${slackErr.message}`);
-              }
-            }
-          } else {
-            console.warn('[echelon-worker] job', job.id, 'Slack job missing slack_channel, skipping reply');
-          }
+        if (isSlackJob || approvalSignalJob) {
+          const slackChannel = String(metadata.slack_channel || '').trim() || (approvalSignalJob ? SIGNAL_APPROVAL_SLACK_CHANNEL : '');
+          const slackThreadTs = String(metadata.slack_thread_ts || '').trim();
+          await sendSlackReply({
+            job,
+            responseText,
+            slackChannel,
+            slackThreadTs,
+          });
         }
 
         await ackJob(job.id, 'done', { responseText });
