@@ -77,6 +77,16 @@ echo "[entrypoint] cron dir: ${OPENCLAW_STATE_DIR}/cron (real directory; legacy 
 
 configure_roles_anywhere
 
+# OpenClaw 2026.8+ fail-closes when enabled plugins need capability consent.
+# This hosted service accepts both bundled runtime plugins so gateway startup
+# does not block before the Echelon worker can run.
+echo "[entrypoint] accepting OpenClaw plugin capabilities for codex and brave"
+openclaw plugins install codex --accept-capabilities || openclaw plugins enable codex --accept-capabilities || true
+openclaw plugins install brave --accept-capabilities || openclaw plugins enable brave --accept-capabilities || true
+openclaw update repair || true
+echo "[entrypoint] plugin inventory after consent repair"
+openclaw plugins list --json || openclaw plugins list || true
+
 # Exec approvals are host-local state. Seed the reviewed binary on every
 # container start so headless Railway sessions do not depend on UI approvals.
 for agent_id in main main-med main-critical; do
