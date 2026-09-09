@@ -61,19 +61,14 @@ else
   fi
 fi
 
-# OpenClaw 2026.8+ migrates legacy cron jobs into SQLite and requires
-# ${OPENCLAW_STATE_DIR}/cron to be a real directory, not a symlink. Keep the
-# legacy volume-backed jobs.json as an import source only.
+# OpenClaw expects cron under ${OPENCLAW_STATE_DIR}/cron. When the Railway volume is mounted only on
+# workspace/, store jobs.json on the volume and symlink the canonical path (survives redeploy).
 mkdir -p "${WORKSPACE_DIR}/cron"
-if [ -L "${OPENCLAW_STATE_DIR}/cron" ]; then
-  rm "${OPENCLAW_STATE_DIR}/cron"
+if [ -e "${OPENCLAW_STATE_DIR}/cron" ] && [ ! -L "${OPENCLAW_STATE_DIR}/cron" ]; then
+  rm -rf "${OPENCLAW_STATE_DIR}/cron"
 fi
-mkdir -p "${OPENCLAW_STATE_DIR}/cron"
-if [ -f "${WORKSPACE_DIR}/cron/jobs.json" ] && [ ! -f "${OPENCLAW_STATE_DIR}/cron/jobs.json" ]; then
-  cp "${WORKSPACE_DIR}/cron/jobs.json" "${OPENCLAW_STATE_DIR}/cron/jobs.json"
-  echo "[entrypoint] copied legacy cron jobs.json from volume into real OpenClaw cron dir"
-fi
-echo "[entrypoint] cron dir: ${OPENCLAW_STATE_DIR}/cron (real directory; legacy volume copy at ${WORKSPACE_DIR}/cron)"
+ln -sfn "${WORKSPACE_DIR}/cron" "${OPENCLAW_STATE_DIR}/cron"
+echo "[entrypoint] cron -> volume: ${OPENCLAW_STATE_DIR}/cron -> ${WORKSPACE_DIR}/cron"
 
 configure_roles_anywhere
 
@@ -91,25 +86,7 @@ export OPENCLAW_GATEWAY_PORT="${PORT}"
 # For Railway, bind on all interfaces so the service port is reachable.
 # Valid modes include: loopback, lan, tailnet, auto, custom.
 openclaw gateway --bind lan --port "${PORT}" --allow-unconfigured &
-gateway_pid="$!"
 sleep 5
 
-if ! kill -0 "${gateway_pid}" >/dev/null 2>&1; then
-  echo "[entrypoint] OpenClaw gateway exited during startup; not starting Echelon worker" >&2
-  wait "${gateway_pid}"
-fi
-
 node "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" &
-worker_pid="$!"
-
-while kill -0 "${gateway_pid}" >/dev/null 2>&1 && kill -0 "${worker_pid}" >/dev/null 2>&1; do
-  sleep 5
-done
-
-if ! kill -0 "${gateway_pid}" >/dev/null 2>&1; then
-  echo "[entrypoint] OpenClaw gateway stopped; exiting service" >&2
-  wait "${gateway_pid}"
-fi
-
-echo "[entrypoint] Echelon worker stopped; exiting service" >&2
-wait "${worker_pid}"
+wait
