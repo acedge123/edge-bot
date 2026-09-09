@@ -61,14 +61,19 @@ else
   fi
 fi
 
-# OpenClaw expects cron under ${OPENCLAW_STATE_DIR}/cron. When the Railway volume is mounted only on
-# workspace/, store jobs.json on the volume and symlink the canonical path (survives redeploy).
+# OpenClaw 2026.8+ migrates legacy cron jobs into SQLite and requires
+# ${OPENCLAW_STATE_DIR}/cron to be a real directory, not a symlink. Keep the
+# legacy volume-backed jobs.json as an import source only.
 mkdir -p "${WORKSPACE_DIR}/cron"
-if [ -e "${OPENCLAW_STATE_DIR}/cron" ] && [ ! -L "${OPENCLAW_STATE_DIR}/cron" ]; then
-  rm -rf "${OPENCLAW_STATE_DIR}/cron"
+if [ -L "${OPENCLAW_STATE_DIR}/cron" ]; then
+  rm "${OPENCLAW_STATE_DIR}/cron"
 fi
-ln -sfn "${WORKSPACE_DIR}/cron" "${OPENCLAW_STATE_DIR}/cron"
-echo "[entrypoint] cron -> volume: ${OPENCLAW_STATE_DIR}/cron -> ${WORKSPACE_DIR}/cron"
+mkdir -p "${OPENCLAW_STATE_DIR}/cron"
+if [ -f "${WORKSPACE_DIR}/cron/jobs.json" ] && [ ! -f "${OPENCLAW_STATE_DIR}/cron/jobs.json" ]; then
+  cp "${WORKSPACE_DIR}/cron/jobs.json" "${OPENCLAW_STATE_DIR}/cron/jobs.json"
+  echo "[entrypoint] copied legacy cron jobs.json from volume into real OpenClaw cron dir"
+fi
+echo "[entrypoint] cron dir: ${OPENCLAW_STATE_DIR}/cron (real directory; legacy volume copy at ${WORKSPACE_DIR}/cron)"
 
 configure_roles_anywhere
 
