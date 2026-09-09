@@ -16,6 +16,7 @@
 - **Wiki engine (compiled knowledge):** For wiki sources, pages, compile, reindex, lint, and `/answer`, use **`workspace/skills/wiki-engine/SKILL.md`** (skill name: `wiki-engine`). Full reference: on the container, **`workspace/docs/WIKI_SYSTEM_OVERVIEW.md`** and **`workspace/docs/WIKI_USAGE_GUIDE.md`** (synced from repo `docs/` at build time). Same bearer token as agent-vault.
 - **Governance Hub runtime:** For heartbeat, authorize, audit-ingest, policy-propose, or tenant rules (e.g. onsite-affiliate, mom-walk-connect), use the **governance-runtime** skill: `workspace/skills/governance-runtime/`. The skill is named **governance-runtime** (not "access governance"); it lives in `workspace/skills/governance-runtime/SKILL.md`.
 - **Google Places + sponsors:** To search venues or enrich a **local sponsors list**, use **`google-places`** (`workspace/skills/google-places/SKILL.md`) with env **`GOOGLE_MAPS_API_KEY`**, and **`sponsors-database`** (`workspace/skills/sponsors-database/SKILL.md`) for the JSON workflow under `workspace/data/sponsors/`.
+- **Mom Walk admin actions:** Use **`mom-walk-manage`** (`workspace/skills/mom-walk-manage/SKILL.md`) for reviewed Mom Walk `/manage` operations. Never recreate its token-minting flow with shell or `curl`; add future actions to the tool's validated registry.
 - **Do not run the jobs worker.** The script `workspace/scripts/jobs-worker.mjs` is a **daemon** the user runs separately. You never run it to "get email" or "pull jobs". To get email, use the **secure-gmail** skill only.
 
 ---

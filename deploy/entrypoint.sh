@@ -72,6 +72,13 @@ echo "[entrypoint] cron -> volume: ${OPENCLAW_STATE_DIR}/cron -> ${WORKSPACE_DIR
 
 configure_roles_anywhere
 
+# Exec approvals are host-local state. Seed the reviewed binary on every
+# container start so headless Railway sessions do not depend on UI approvals.
+for agent_id in main main-med main-critical; do
+  openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage"
+done
+echo "[entrypoint] allowlisted /usr/local/bin/mom-walk-manage for hosted agents"
+
 export PORT="${PORT:-18789}"
 export OPENCLAW_GATEWAY_PORT="${PORT}"
 
@@ -83,4 +90,3 @@ sleep 5
 
 node "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" &
 wait
-

@@ -6,7 +6,7 @@
 #   ./deploy/package-runtime.sh
 #   docker build -f deploy/Dockerfile -t openclaw-gateway .
 
-FROM node:22-slim
+FROM node:22.22.3-slim
 
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
@@ -35,8 +35,14 @@ RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.co
 
 # Install OpenClaw globally
 # Pin to npm dist-tag latest; see https://github.com/openclaw/openclaw/releases
-ARG OPENCLAW_VERSION=2026.4.11
+ARG OPENCLAW_VERSION=2026.8.2
 RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
+
+# Root-owned, policy-constrained client for Mom Walk /manage actions. The agent
+# may execute this binary, but does not receive general shell or curl access.
+COPY tools/mom-walk-manage.mjs /usr/local/lib/edge-bot/mom-walk-manage.mjs
+RUN chmod 755 /usr/local/lib/edge-bot/mom-walk-manage.mjs \
+  && ln -s /usr/local/lib/edge-bot/mom-walk-manage.mjs /usr/local/bin/mom-walk-manage
 
 # Create runtime directory
 RUN mkdir -p /app/.openclaw
