@@ -56,6 +56,8 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.workspace = "/app/.openclaw/workspace" |
     .agents.defaults.model.primary = "openai/gpt-5.6-sol" |
     .agents.defaults.model.fallbacks = ["openai/gpt-5.5"] |
+    .agents.defaults.heartbeat.agentId = "main" |
+    .agents.defaults.systemAgent.agentId = "main" |
     .agents.entries = {"main":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
     del(.agents.list)
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"

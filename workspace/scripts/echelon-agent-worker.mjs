@@ -871,8 +871,12 @@ async function runLoop() {
         await ackJob(job.id, 'done', { responseText });
         console.log('[echelon-worker] job', job.id, '→ done');
       } catch (err) {
-        console.error('[echelon-worker] job', job.id, 'error:', err.message);
-        await ackJob(job.id, 'failed', { error: err.message }).catch((e) =>
+        const cause = err?.cause
+          ? ` cause=${err.cause.code || err.cause.name || 'unknown'} ${err.cause.address || ''} ${err.cause.port || ''}`.trim()
+          : '';
+        const errorMessage = `${err.message}${cause ? ` (${cause})` : ''}`;
+        console.error('[echelon-worker] job', job.id, 'error:', errorMessage);
+        await ackJob(job.id, 'failed', { error: errorMessage }).catch((e) =>
           console.error('[echelon-worker] ack failed:', e.message)
         );
       }
