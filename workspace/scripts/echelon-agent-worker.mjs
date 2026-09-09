@@ -41,13 +41,12 @@ const execFileAsync = promisify(execFile);
  * Model routing for the hosted agent.
  *
  * Control point: route to a specific OpenClaw agent id that is pre-configured with a backing model.
- * - `main`         => gpt-5.4-mini (default)
- * - `main-med`     => gpt-5.4 (code + medium reasoning)
- * - `main-critical`=> gpt-5.4 (security + critical reasoning)
+ * - `main`         => default hosted OpenClaw model
+ * - `main-med`     => medium-complexity hosted OpenClaw agent
+ * - `main-critical`=> critical hosted OpenClaw agent
  *
  * Override tags (user text):
- * - @model:gpt-5.4        => main-critical
- * - @model:gpt-5.4-mini   => main
+ * - @model:gpt-5.6-sol    => main-critical
  */
 function pickRoutedAgent(requestText) {
   const raw = String(requestText || '');
@@ -55,8 +54,7 @@ function pickRoutedAgent(requestText) {
   // Explicit override tag takes precedence.
   const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
   if (tag) {
-    if (tag === 'gpt-5.4') return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.4' };
-    if (tag === 'gpt-5.4-mini' || tag === 'gpt-5.4mini') return { agentId: 'main', reason: 'forced:@model:gpt-5.4-mini' };
+    if (tag === 'gpt-5.6-sol' || tag === 'gpt-5.6') return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.6-sol' };
   }
 
   const text = raw.toLowerCase();
