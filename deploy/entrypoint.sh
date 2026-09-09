@@ -79,25 +79,9 @@ configure_roles_anywhere
 
 # OpenClaw 2026.8+ fail-closes when installed plugins need capability consent.
 # The hosted worker needs the Codex runtime, but Brave search is optional here.
-repair_openclaw_plugins() {
-  echo "[entrypoint] preparing OpenClaw plugin state"
-
-  openclaw config set plugins.entries.codex.enabled true || true
-  openclaw config set plugins.entries.brave.enabled false || true
-
-  # These are baked into the image, but keep the install commands as a startup
-  # repair path for older volumes or changed OpenClaw state.
-  openclaw plugins install @openclaw/codex --accept-capabilities || true
-  openclaw plugins enable codex --accept-capabilities || true
-  openclaw plugins install @openclaw/brave-plugin --accept-capabilities || true
-  openclaw plugins disable brave || true
-  openclaw update repair || true
-
-  echo "[entrypoint] plugin inventory after repair"
-  openclaw plugins list --json || openclaw plugins list || true
-}
-
-repair_openclaw_plugins
+openclaw plugins enable codex --accept-capabilities || true
+openclaw plugins disable brave || true
+echo "[entrypoint] ensured codex plugin consent; disabled optional brave plugin"
 
 # Exec approvals are host-local state. Seed the reviewed binary on every
 # container start so headless Railway sessions do not depend on UI approvals.
