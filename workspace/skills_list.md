@@ -35,4 +35,3 @@
 33. repo-map
 34. small-business-finance-tax
 35. memory-index
-36. mom-walk-manage
