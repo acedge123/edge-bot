@@ -48,6 +48,7 @@ Optional CLI after `railway link` from this repo: `railway status` (service cont
 ## For AI agents
 
 - **Persistence:** If **Volume mount path** above is `/app/.openclaw/workspace` (or another documented path that backs the OpenClaw workspace), treat **`MEMORY.md`**, **`SOUL.md`**, **`workspace/cron/`**, and **cloned repos** under that tree as **durable across redeploys** unless the user says otherwise.
+- **Plugins:** OpenClaw 2026.8+ refuses gateway readiness when enabled plugins lack capability consent. The image preinstalls `@openclaw/codex` for the Codex runtime and `@openclaw/brave-plugin` only so Brave can be explicitly disabled; entrypoint repair must keep Codex enabled and Brave disabled before starting the gateway.
 - **Secrets:** Never expect env values in this file; use env var **names** from `deploy/RAILWAY_SKILLS_AND_LEARNINGS.md` or service docs.
 
 ---

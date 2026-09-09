@@ -43,6 +43,16 @@
   "env": {
     "vars": {}
   },
+  "plugins": {
+    "entries": {
+      "codex": {
+        "enabled": true
+      },
+      "brave": {
+        "enabled": false
+      }
+    }
+  },
   "hooks": {
     "enabled": true,
     "token": "${OPENCLAW_HOOK_TOKEN}"
