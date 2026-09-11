@@ -33,7 +33,12 @@
     "profiles": {
       "openai:default": {
         "provider": "openai",
-        "mode": "api_key"
+        "mode": "api_key",
+        "keyRef": {
+          "source": "env",
+          "provider": "default",
+          "id": "OPENAI_API_KEY"
+        }
       }
     },
     "order": {
