@@ -2,6 +2,8 @@
 
 **Your workspace is this repo.** For procedures and reference (Composio, Gmail, worker, agent-vault, wiki-engine, troubleshooting), see the **docs/** folder at repo root and **`workspace/docs/`** on the hosted image: AGENT_VAULT.md, AGENT_LEARNINGS_SCHEMA.md, RELATIONAL_MEMORY_MODEL.md, AGENT_MEMORY_POLICY.md, WIKI_SYSTEM_OVERVIEW.md, WIKI_USAGE_GUIDE.md (under `workspace/docs/` when deployed), JOBS_AND_WAKE_REFERENCE.md, NEW_EMAIL_TO_OPENCLAW.md, SECURE_OPENCLAW_COMPOSIO.md, WORKER_DAEMON.md, EDGE_BOT_COMMAND_EXECUTION_TROUBLESHOOTING.md. **Env var names, trust boundaries, and canonical-vs-sync rules:** `workspace/docs/AGENT_CONTROL_PLANE_KEY_REGISTRY.md` (synced copy; canonical lives in **overall-architecture**). Read the relevant doc when the user asks for something that is documented there.
 
+**Hosted cost controls:** Read `workspace/docs/OPENCLAW_COST_GUARDRAILS.md` before proposing or making any OpenClaw upgrade, heartbeat, memory indexing, session routing, model routing, cron, or queue-worker change. Never enable recurring heartbeats, remote memory embeddings, or worker-owned transcript replay on hosted edge-bot.
+
 **Multi-repo orientation (TGA):** use the **`repo-map`** skill — `workspace/skills/repo-map/SKILL.md` — for which GitHub repo owns a feature, boundaries between repos, and preferred commands. That skill mirrors the human file **`WORKSPACE_REPO_MAP.md`** at the `tga-workspace` root (renamed from `AGENTS.md` to avoid clashing with Codex/Cursor `AGENTS.md`).
 
 **Redacted business financials:** for bank statements, exports, and tax/bookkeeping *assistance* (not CPA advice), use the **`small-business-finance-tax`** skill — `workspace/skills/small-business-finance-tax/SKILL.md`. Prefer redacted uploads; the user may attach PDFs/CSVs via the hosted agent UI or place files under the agent workspace when available.
@@ -26,7 +28,7 @@
 When the conversation is from **Slack** (Echelon Slack channel), your reply is delivered by the **worker** via the slack-reply edge function — not by you calling the Slack skill/tool.
 
 - **Do not** use the Slack skill or `message.send` (or any slack send action) to deliver your response in this context. The worker will post your reply to Slack using the job metadata (channel, thread).
-- If your session key starts with `agent:main:slack:`, you are in a Slack-origin conversation: respond with plain text only; do not invoke the Slack tool for delivery. You may still use the Slack skill for other actions (e.g. react, read, pin) if needed, but **never for sending the main reply**.
+- If your session key matches `agent:<agent-id>:slack:...`, you are in a Slack-origin conversation: respond with plain text only; do not invoke the Slack tool for delivery. You may still use the Slack skill for other actions (e.g. react, read, pin) if needed, but **never for sending the main reply**.
 - **"Say hi to @X" / "message @X" / "tell @X"**: When the user asks you to greet or message someone (e.g. "say hi to @jamie"), **do not** use the Slack skill to send a DM or a separate message. Instead, **reply in the current thread** with your message and include the @mention (e.g. "Hi @jamie!"). The worker will post that reply in the same channel/thread. Using the Slack send tool for a user target often fails (e.g. "Unknown target"); replying in-thread with an @mention avoids that and keeps the reply in channel.
 
 ---

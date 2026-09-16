@@ -54,16 +54,29 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     del(.agent) |
     .agents.ownership = "explicit" |
     .agents.defaults.workspace = "/app/.openclaw/workspace" |
-    .agents.defaults.model.primary = "openai/gpt-5.6-sol" |
-    .agents.defaults.model.fallbacks = ["openai/gpt-5.5"] |
+    .agents.defaults.model.primary = "openai/gpt-5.4-mini" |
+    .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] |
+    .agents.defaults.heartbeat.every = "0m" |
     .agents.defaults.heartbeat.agentId = "main" |
     .agents.defaults.systemAgent.agentId = "main" |
-    .agents.entries = {"main":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
+    .agents.entries = {"main":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.4","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
+    .memory.search.enabled = false |
+    .memory.search.provider = "none" |
+    .memory.search.rememberAcrossConversations = false |
+    .memory.search.sources = ["memory"] |
     del(.auth.profiles["openai:default"]) |
     del(.auth.order.openai) |
     del(.agents.list)
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
-  echo "Set packaged model defaults to openai/gpt-5.6-sol for Railway"
+  jq -e '
+    .agents.defaults.heartbeat.every == "0m" and
+    .memory.search.enabled == false and
+    .memory.search.provider == "none" and
+    .agents.entries.main.model == "openai/gpt-5.4-mini" and
+    .agents.entries["main-med"].model == "openai/gpt-5.4" and
+    .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
+  ' "$DEST/openclaw.json" >/dev/null
+  echo "Applied Railway cost controls: tiered models, disabled heartbeat, disabled remote memory indexing"
 fi
 
 echo "Done. Runtime packaged in $DEST"

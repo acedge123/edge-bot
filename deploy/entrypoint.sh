@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
 
-OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-/app/.openclaw}"
-WORKSPACE_DIR="${OPENCLAW_STATE_DIR}/workspace"
-BAKED_WORKSPACE_DIR="${OPENCLAW_STATE_DIR}/workspace.baked"
+IMAGE_STATE_DIR="${OPENCLAW_IMAGE_STATE_DIR:-/app/.openclaw}"
+WORKSPACE_DIR="${OPENCLAW_WORKSPACE:-${IMAGE_STATE_DIR}/workspace}"
+BAKED_WORKSPACE_DIR="${IMAGE_STATE_DIR}/workspace.baked"
+RUNTIME_STATE_DIR="${OPENCLAW_RUNTIME_STATE_DIR:-${WORKSPACE_DIR}/.openclaw-state}"
 
 # AWS Roles Anywhere (optional)
 # If RA_* env vars are provided, configure an AWS profile using credential_process.
@@ -61,19 +62,34 @@ else
   fi
 fi
 
-# OpenClaw 2026.8+ migrates legacy cron jobs into SQLite and requires
-# ${OPENCLAW_STATE_DIR}/cron to be a real directory, not a symlink. Keep the
-# legacy volume-backed jobs.json as an import source only.
+# Keep mutable OpenClaw state under the Railway-mounted workspace volume. The
+# image remains the source of truth for config, while cron/session SQLite state
+# survives container replacement.
+mkdir -p "${RUNTIME_STATE_DIR}"
+for runtime_file in openclaw.json config.yaml; do
+  if [ -f "${IMAGE_STATE_DIR}/${runtime_file}" ]; then
+    cp "${IMAGE_STATE_DIR}/${runtime_file}" "${RUNTIME_STATE_DIR}/${runtime_file}"
+  fi
+done
+for runtime_dir in agents identity hooks completions devices subagents skills; do
+  if [ -d "${IMAGE_STATE_DIR}/${runtime_dir}" ] && [ ! -e "${RUNTIME_STATE_DIR}/${runtime_dir}" ]; then
+    cp -a "${IMAGE_STATE_DIR}/${runtime_dir}" "${RUNTIME_STATE_DIR}/${runtime_dir}"
+  fi
+done
+
+export OPENCLAW_STATE_DIR="${RUNTIME_STATE_DIR}"
+export OPENCLAW_WORKSPACE="${WORKSPACE_DIR}"
+
+# OpenClaw 2026.8+ requires cron to be a real directory. Because the entire
+# runtime state now lives on the volume, no symlink or per-boot re-import is
+# needed after the one-time legacy jobs.json seed.
 mkdir -p "${WORKSPACE_DIR}/cron"
-if [ -L "${OPENCLAW_STATE_DIR}/cron" ]; then
-  rm "${OPENCLAW_STATE_DIR}/cron"
-fi
 mkdir -p "${OPENCLAW_STATE_DIR}/cron"
 if [ -f "${WORKSPACE_DIR}/cron/jobs.json" ] && [ ! -f "${OPENCLAW_STATE_DIR}/cron/jobs.json" ]; then
   cp "${WORKSPACE_DIR}/cron/jobs.json" "${OPENCLAW_STATE_DIR}/cron/jobs.json"
-  echo "[entrypoint] copied legacy cron jobs.json from volume into real OpenClaw cron dir"
+  echo "[entrypoint] seeded legacy cron jobs.json into persistent OpenClaw state"
 fi
-echo "[entrypoint] cron dir: ${OPENCLAW_STATE_DIR}/cron (real directory; legacy volume copy at ${WORKSPACE_DIR}/cron)"
+echo "[entrypoint] persistent state: ${OPENCLAW_STATE_DIR}; cron: ${OPENCLAW_STATE_DIR}/cron"
 
 configure_roles_anywhere
 
@@ -83,7 +99,10 @@ configure_roles_anywhere
 echo "[entrypoint] accepting OpenClaw plugin capabilities for codex and brave"
 openclaw plugins install codex --accept-capabilities || openclaw plugins enable codex --accept-capabilities || true
 openclaw plugins install brave --accept-capabilities || openclaw plugins enable brave --accept-capabilities || true
-openclaw update repair || true
+if [ "${OPENCLAW_RUN_UPDATE_REPAIR:-0}" = "1" ]; then
+  echo "[entrypoint] running explicitly enabled OpenClaw update repair"
+  openclaw update repair || true
+fi
 echo "[entrypoint] plugin inventory after consent repair"
 openclaw plugins list --json || openclaw plugins list || true
 

@@ -55,19 +55,26 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | Variable | Purpose |
 |----------|---------|
 | `OPENCLAW_GATEWAY_TOKEN` | Webhook/auth token (generate: `openssl rand -hex 24`) |
-| `OPENAI_API_KEY` | OpenAI API key (image default: `openai/gpt-5.6-sol`, fallback `openai/gpt-5.5` — see `deploy/Dockerfile`) |
+| `OPENAI_API_KEY` | OpenAI API key. Text routing uses `gpt-5.4-mini` by default, `gpt-5.4` for code/reasoning, and `gpt-5.6-sol` only for critical work. |
 | `ANTHROPIC_API_KEY` | Claude API key; only if you override to use Claude |
 | `OPENROUTER_API_KEY` | Optional; if using OpenRouter |
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
 | `OPENCLAW_HOOK_TOKEN` | **Must differ from** `OPENCLAW_GATEWAY_TOKEN`. Used for /hooks/wake. Generate: `openssl rand -hex 24` |
 | `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://your-project.supabase.co/functions/v1`) |
+| `ECHELON_CIRCUIT_FAILURE_THRESHOLD` | Optional. Consecutive provider failures before the worker stops claiming jobs; default `2`. |
+| `ECHELON_CIRCUIT_OPEN_MS` | Optional. Provider-failure claim pause; default `900000` (15 minutes). |
+| `OPENCLAW_RUN_UPDATE_REPAIR` | Optional migration switch. Leave unset/`0`; use `1` only during an explicitly reviewed upgrade. |
 | `GOOGLE_MAPS_API_KEY` | Optional. Google **Places API (New)** for venue search/details (sponsors enrichment). Enable Places API (New) in Google Cloud. See `workspace/skills/google-places/SKILL.md`. |
 | `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Must match the Mom Walk Supabase `AGENT_MINT_SECRET`. |
 | `MOM_WALK_FUNCTIONS_URL` | Optional. Defaults to the production Mom Walk Supabase functions URL. Override only for an intentional environment change. |
 | `MOM_WALK_SUPABASE_ANON_KEY` | Optional publishable/anon key forwarded as `apikey`. The short-lived service-account JWT remains the authorization credential. |
 
 **Echelon Hosted Agent:** The worker (`echelon-agent-worker.mjs`) runs alongside the gateway and polls `agent-next`, sends jobs to the agent via chat, and acks via `agent-ack`. Requires `AGENT_HOSTED_EDGE_KEY` (same as Echelon backend secrets).
+
+Before changing the OpenClaw version or runtime config, follow [`OPENCLAW_UPGRADE_POLICY.md`](./OPENCLAW_UPGRADE_POLICY.md). The cost controls are production invariants, not optional tuning.
+
+Run `./deploy/verify-cost-controls.sh` before every image build or deploy.
 
 Add any other keys from your `~/.openclaw/.env` as needed.
 

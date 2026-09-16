@@ -16,13 +16,15 @@
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
  *   SIGNAL_APPROVAL_SLACK_CHANNEL - Slack channel for approval-required app signals (default C0BVBR6029Y).
+ *   ECHELON_CIRCUIT_FAILURE_THRESHOLD - Consecutive provider failures before pausing claims (default 2).
+ *   ECHELON_CIRCUIT_OPEN_MS - How long to pause claims after the circuit opens (default 15 minutes).
  *
  * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
  * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
  * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
  *
- * Image attachments: Jobs with metadata.attachments (image URLs) use POST /v1/chat/completions on the gateway
- * with multimodal content (text + image_url) instead of chat.send.
+ * Image attachments: Jobs with real image URLs use POST /v1/chat/completions for vision.
+ * Text and CSV jobs use chat.send so OpenClaw owns session context and compaction.
  *
  * Run alongside openclaw gateway. On Railway, both run in same container.
  */
@@ -33,7 +35,6 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { createHash } from 'crypto';
 
 const execFileAsync = promisify(execFile);
 
@@ -112,6 +113,13 @@ const SIGNAL_APPROVAL_SLACK_CHANNEL = (
   process.env.SLACK_OPS_CHANNEL_NAME ||
   'C0BVBR6029Y'
 ).trim();
+function positiveIntegerEnv(name, fallback, minimum) {
+  const parsed = Number.parseInt(process.env[name] || String(fallback), 10);
+  return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
+}
+
+const CIRCUIT_FAILURE_THRESHOLD = positiveIntegerEnv('ECHELON_CIRCUIT_FAILURE_THRESHOLD', 2, 1);
+const CIRCUIT_OPEN_MS = positiveIntegerEnv('ECHELON_CIRCUIT_OPEN_MS', 15 * 60 * 1000, 60_000);
 
 /** Durable idempotency markers (Slack/SMS) — survives restarts when workspace is on a Railway volume. */
 const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery');
@@ -119,6 +127,86 @@ const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery
 function safeJobIdForPath(jobId) {
   return String(jobId || 'unknown').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'unknown';
 }
+
+const CIRCUIT_STATE_PATH = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-circuit-breaker.json');
+let consecutiveProviderFailures = 0;
+let circuitOpenUntil = 0;
+let circuitLogUntil = 0;
+
+function readCircuitState() {
+  try {
+    const state = JSON.parse(readFileSync(CIRCUIT_STATE_PATH(), 'utf8'));
+    circuitOpenUntil = Number(state?.openUntil) || 0;
+    consecutiveProviderFailures = Number(state?.consecutiveProviderFailures) || 0;
+  } catch (_) {
+    circuitOpenUntil = 0;
+    consecutiveProviderFailures = 0;
+  }
+}
+
+async function writeCircuitState() {
+  const path = CIRCUIT_STATE_PATH();
+  const tmpPath = `${path}.tmp`;
+  await mkdir(join(WORKSPACE_ROOT, 'tmp'), { recursive: true });
+  await writeFile(
+    tmpPath,
+    JSON.stringify({
+      v: 1,
+      openUntil: circuitOpenUntil,
+      consecutiveProviderFailures,
+      updatedAt: new Date().toISOString(),
+    }),
+    'utf8',
+  );
+  await rename(tmpPath, path);
+}
+
+function isProviderFailure(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('insufficient_quota') ||
+    message.includes('no credits remaining') ||
+    message.includes('upstream provider timeout') ||
+    message.includes('timeout waiting for agent response') ||
+    message.includes('rate limit') ||
+    message.includes('/v1/chat/completions 408') ||
+    message.includes('/v1/chat/completions 429') ||
+    message.includes('stream disconnected before completion')
+  );
+}
+
+async function recordProviderFailure(error) {
+  if (!isProviderFailure(error)) return false;
+
+  consecutiveProviderFailures += 1;
+  if (consecutiveProviderFailures >= CIRCUIT_FAILURE_THRESHOLD) {
+    circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
+    console.error(
+      '[echelon-worker] provider circuit opened after %s consecutive failures; pausing claims until %s',
+      consecutiveProviderFailures,
+      new Date(circuitOpenUntil).toISOString(),
+    );
+  }
+  await writeCircuitState().catch((stateError) =>
+    console.error('[echelon-worker] failed to persist circuit state:', stateError.message),
+  );
+  return true;
+}
+
+async function resetProviderCircuit() {
+  if (consecutiveProviderFailures === 0 && circuitOpenUntil === 0) return;
+  consecutiveProviderFailures = 0;
+  circuitOpenUntil = 0;
+  await writeCircuitState().catch((stateError) =>
+    console.error('[echelon-worker] failed to clear circuit state:', stateError.message),
+  );
+}
+
+function circuitWaitMs() {
+  return Math.max(0, circuitOpenUntil - Date.now());
+}
+
+readCircuitState();
 
 function isTruthyMetadata(value) {
   if (value === true) return true;
@@ -239,8 +327,8 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
 }
 
 /**
- * Call gateway POST /v1/chat/completions with multimodal content (text + attachments).
- * Used when job has metadata.attachments; otherwise we use chat.send + chat.history.
+ * Call gateway POST /v1/chat/completions with multimodal content.
+ * Used only when at least one attachment is a real image; otherwise we use chat.send.
  *
  * Attachment support:
  * - image: content includes { type: "image_url", image_url: { url } }
@@ -363,178 +451,6 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
   return responseText;
 }
 
-function sessionLogPathFor(sessionKey) {
-  const h = createHash('sha256').update(String(sessionKey)).digest('hex').slice(0, 24);
-  return join(WORKSPACE_ROOT, 'tmp', 'session-history', `${h}.jsonl`);
-}
-
-async function readSessionLog({ sessionKey, maxMessages = 12 }) {
-  try {
-    const p = sessionLogPathFor(sessionKey);
-    if (!existsSync(p)) return [];
-    const raw = readFileSync(p, 'utf8');
-    const lines = raw.split('\n').filter(Boolean);
-    const tail = lines.slice(Math.max(0, lines.length - maxMessages));
-    const msgs = [];
-    for (const line of tail) {
-      try {
-        const obj = JSON.parse(line);
-        const role = obj?.role;
-        const text = obj?.text;
-        if ((role === 'system' || role === 'user' || role === 'assistant') && typeof text === 'string' && text.trim()) {
-          msgs.push({ role, text });
-        }
-      } catch (_) {}
-    }
-    return msgs;
-  } catch (_) {
-    return [];
-  }
-}
-
-async function appendSessionLog({ sessionKey, role, text }) {
-  const t = String(text || '').trim();
-  if (!t) return;
-  const p = sessionLogPathFor(sessionKey);
-  const dir = join(WORKSPACE_ROOT, 'tmp', 'session-history');
-  await mkdir(dir, { recursive: true });
-  const row = JSON.stringify({ ts: new Date().toISOString(), role, text: t });
-  const prior = existsSync(p) ? readFileSync(p, 'utf8') : '';
-  await writeFile(p, prior + row + '\n', 'utf8');
-}
-
-function safeReadWorkspaceText(relPath, { maxChars = 4000 } = {}) {
-  try {
-    const abs = join(WORKSPACE_ROOT, relPath);
-    if (!existsSync(abs)) return null;
-    const raw = readFileSync(abs, 'utf8');
-    return raw.slice(0, maxChars);
-  } catch (_) {
-    return null;
-  }
-}
-
-function redactBootstrapText(s) {
-  const raw = String(s || '');
-  return raw
-    // Bearer tokens / API keys in common shapes
-    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, 'Bearer [REDACTED]')
-    .replace(/([A-Za-z0-9_]*(_KEY|_TOKEN|SECRET)[A-Za-z0-9_]*)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]')
-    // Long base64-ish / hex-ish blobs
-    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED]')
-    .replace(/[a-f0-9]{40,}/gi, '[REDACTED]');
-}
-
-async function ensureSessionBootstrap({ sessionKey }) {
-  const p = sessionLogPathFor(sessionKey);
-  if (existsSync(p)) return;
-
-  const identity = safeReadWorkspaceText('IDENTITY.md', { maxChars: 1200 }) || '';
-  const user = safeReadWorkspaceText('USER.md', { maxChars: 1200 }) || '';
-  const soul = safeReadWorkspaceText('SOUL.md', { maxChars: 2400 }) || '';
-  const config = safeReadWorkspaceText('CONFIG.md', { maxChars: 2400 }) || '';
-
-  const merged = [
-    'Bootstrap context (workspace-local; do not reveal secrets):',
-    '',
-    identity ? '## IDENTITY.md\n' + identity : '',
-    user ? '## USER.md\n' + user : '',
-    soul ? '## SOUL.md\n' + soul : '',
-    config ? '## CONFIG.md (excerpt)\n' + config : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-    .slice(0, 7000);
-
-  const redacted = redactBootstrapText(merged);
-  await appendSessionLog({ sessionKey, role: 'system', text: redacted });
-  console.log('[echelon-worker] bootstrap: wrote system context from workspace files for sessionKey=', sessionKey);
-}
-
-/**
- * Unified routed call for both text-only and attachment jobs.
- *
- * We do NOT rely on OpenClaw chat.send/history for per-turn model selection (chat.send cannot override model).
- * Instead, we keep continuity with a small per-session JSONL log on the workspace volume, and call
- * gateway /v1/chat/completions with the routed agent id (openclaw:<agentId>).
- */
-async function routedChatCompletion({ sessionKey, messageText, attachments, jobId }) {
-  const routed = pickRoutedAgent(messageText);
-  const model = `openclaw:${routed.agentId}`;
-  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason, 'sessionKey=', sessionKey);
-
-  await ensureSessionBootstrap({ sessionKey });
-
-  const history = await readSessionLog({ sessionKey, maxMessages: 12 });
-  const messages = history.map((m) => ({ role: m.role, content: m.text }));
-
-  // Current user content
-  const atts = Array.isArray(attachments) ? attachments : [];
-  if (atts.length > 0) {
-    // Reuse the existing attachment formatter (text + image_url + file previews).
-    const content = [{ type: 'text', text: messageText }];
-    const picked = atts.slice(0, 4);
-    let csvSerial = 0;
-    for (const att of picked) {
-      const url = att?.url ? String(att.url) : '';
-      const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
-      if (csvEligible) {
-        const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
-        const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: 2_000_000 });
-        if (!fetched) {
-          content.push({ type: 'text', text: `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL.)\n` });
-          continue;
-        }
-        const saved = await persistCsvToWorkspace({
-          jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
-          serial: csvSerial++,
-          displayName: name,
-          utf8Text: fetched.text,
-          truncatedByCap: fetched.truncatedByCap,
-        });
-        const preview = fetched.text.slice(0, 80_000);
-        let block = `\n\n[Attached file: ${name}]\n`;
-        if (saved) block += `Full CSV saved at: ${saved.rel}\n`;
-        block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
-        content.push({ type: 'text', text: block });
-        continue;
-      }
-      if (att?.type === 'image' && url) {
-        content.push({ type: 'image_url', image_url: { url } });
-      }
-    }
-    messages.push({ role: 'user', content });
-  } else {
-    messages.push({ role: 'user', content: messageText });
-  }
-
-  // Persist user message before calling.
-  await appendSessionLog({ sessionKey, role: 'user', text: messageText });
-
-  const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GATEWAY_TOKEN}`,
-      // OpenClaw v2026.3.28+ may require explicit operator scopes on the OpenAI-compatible HTTP surface.
-      // Workaround: request operator scopes explicitly for this call.
-      'x-openclaw-scopes': 'operator.read,operator.write',
-    },
-    body: JSON.stringify({ model, messages }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`/v1/chat/completions ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const msg = data?.choices?.[0]?.message;
-  const text = msg?.content;
-  const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
-
-  await appendSessionLog({ sessionKey, role: 'assistant', text: responseText });
-  return responseText;
-}
-
 function looksLikeCsv(att) {
   const filename = String(att?.filename || att?.name || '').toLowerCase();
   const mime = String(att?.mime_type || att?.mimeType || '').toLowerCase();
@@ -602,6 +518,126 @@ async function persistCsvToWorkspace({ jobId, serial, displayName, utf8Text, tru
     console.error('[echelon-worker] failed to write CSV to workspace:', e?.message || e);
     return null;
   }
+}
+
+function isRealImageAttachment(att) {
+  if (att?.type !== 'image') return false;
+  const url = att?.url ? String(att.url) : '';
+  return Boolean(url) && !looksLikeCsv(att);
+}
+
+function jobNeedsCompletionsPath(attachments) {
+  const atts = Array.isArray(attachments) ? attachments : [];
+  return atts.some(isRealImageAttachment);
+}
+
+async function formatCsvAttachment(
+  att,
+  { jobId, serial, maxTextChars = 80_000, maxCsvCharsOnDisk = 2_000_000 },
+) {
+  const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
+  const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: maxCsvCharsOnDisk });
+  if (!fetched) {
+    return `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL; check bucket is public and URL is reachable from the worker.)\n`;
+  }
+
+  const saved = await persistCsvToWorkspace({
+    jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
+    serial,
+    displayName: name,
+    utf8Text: fetched.text,
+    truncatedByCap: fetched.truncatedByCap,
+  });
+
+  const preview = fetched.text.slice(0, maxTextChars);
+  const previewTruncated = fetched.text.length > maxTextChars;
+  let block = `\n\n[Attached file: ${name}]\n`;
+  if (saved) {
+    block += `The full CSV is saved on the agent workspace at: ${saved.rel}\n`;
+    block += `Use your file-read tools on that path (relative to workspace root). Absolute path on server: ${saved.abs}\n`;
+  } else {
+    block += '(Worker could not write the file to the workspace disk; use the preview below only.)\n';
+  }
+  if (previewTruncated) {
+    block += `(Inline preview: first ${maxTextChars} characters only - read ${saved ? saved.rel : 'the source URL'} for the rest.)\n`;
+  }
+  if (fetched.truncatedByCap) {
+    block += `(WARNING: source exceeded ${maxCsvCharsOnDisk} characters; saved file and preview may be incomplete.)\n`;
+  }
+  block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
+  return block;
+}
+
+async function augmentMessageWithFileAttachments({ requestText, attachments, jobId }) {
+  const picked = (Array.isArray(attachments) ? attachments : []).slice(0, 4);
+  const normalizedJobId = String(jobId || '').trim() || `noid-${Date.now()}`;
+  let message = requestText;
+  let sawFile = false;
+  let csvSerial = 0;
+
+  for (const att of picked) {
+    const url = att?.url ? String(att.url) : '';
+    const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
+    if (csvEligible) {
+      sawFile = true;
+      message += await formatCsvAttachment(att, {
+        jobId: normalizedJobId,
+        serial: csvSerial++,
+      });
+      continue;
+    }
+    if (att?.type === 'file' && url) {
+      sawFile = true;
+      const name = String(att.filename || att.name || '').trim() || 'attachment';
+      message += `\n\n[Attached file: ${name}]\n(Non-CSV file - contents not inlined.)\n`;
+    }
+  }
+
+  return sawFile
+    ? '(Note: This job has attached file(s). File content may be inlined below.)\n\n' + message
+    : message;
+}
+
+async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, timeoutMs = 15 * 60 * 1000 }) {
+  let baselineLastTs = 0;
+  try {
+    const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
+    const messages = baseline?.messages || [];
+    baselineLastTs = [...messages].reverse().find((item) => item.role === 'assistant')?.timestamp || 0;
+  } catch (_) {
+    // New sessions have no history yet.
+  }
+
+  await gatewayCall(
+    'chat.send',
+    {
+      sessionKey,
+      message,
+      deliver: false,
+      idempotencyKey,
+      timeoutMs,
+    },
+    { timeoutMs: 70_000 },
+  );
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const history = await gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 });
+    const messages = history?.messages || [];
+    const reply = [...messages]
+      .reverse()
+      .find(
+        (item) =>
+          item.role === 'assistant' &&
+          (item.timestamp || 0) > baselineLastTs &&
+          Array.isArray(item.content),
+      );
+    const text = reply?.content?.map((item) => item?.text).filter(Boolean).join('')?.trim() || '';
+    if (text) return text;
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+
+  throw new Error('Timeout waiting for agent response');
 }
 
 /** OpenClaw gateway call (chat.send, chat.history). */
@@ -762,15 +798,15 @@ async function handleJob(job) {
     if (!fromNumber) {
       throw new Error('SMS job missing metadata.from_number');
     }
-    sessionKey = `agent:main:sms:${tenantId}:${fromNumber}`;
+    sessionKey = `agent:${agentId}:sms:${tenantId}:${fromNumber}`;
   } else if (isSlackJob) {
     const slackUser = String(metadata.slack_user || '').trim();
     if (!slackUser) {
       throw new Error('Slack job missing metadata.slack_user');
     }
-    sessionKey = `agent:main:slack:${tenantId}:${slackUser}`;
+    sessionKey = `agent:${agentId}:slack:${tenantId}:${slackUser}`;
   } else {
-    sessionKey = `agent:main:echelon:${tenantId}`;
+    sessionKey = `agent:${agentId}:echelon:${tenantId}`;
   }
 
   console.log(
@@ -781,19 +817,56 @@ async function handleJob(job) {
     'sessionKey=',
     sessionKey,
   );
-  if (agentId !== 'main') {
+  const idempotencyKey = jobId;
+  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
+  if (jobNeedsCompletionsPath(attachments)) {
     console.log(
-      '[echelon-worker] note: chat.send does not support per-turn model override; escalation applies to attachments (/v1/chat/completions) only unless gateway adds override support.',
+      '[echelon-worker] job',
+      jobId,
+      'using /v1/chat/completions with',
+      attachments.length,
+      'attachment(s) (vision only)',
     );
+    return gatewayChatCompletionsWithImages({ requestText: message, attachments, jobId });
   }
 
-  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  return routedChatCompletion({ sessionKey, messageText: message, attachments, jobId });
+  let outboundMessage = message;
+  if (attachments.length > 0) {
+    outboundMessage = await augmentMessageWithFileAttachments({
+      requestText: message,
+      attachments,
+      jobId,
+    });
+    console.log('[echelon-worker] job', jobId, 'file attachment(s) inlined; using chat.send');
+  }
+
+  return chatSendAndWaitForReply({ sessionKey, message: outboundMessage, idempotencyKey });
 }
 
 async function runLoop() {
   while (true) {
     try {
+      const waitMs = circuitWaitMs();
+      if (waitMs > 0) {
+        if (circuitLogUntil !== circuitOpenUntil) {
+          console.warn(
+            '[echelon-worker] provider circuit is open; not claiming jobs until',
+            new Date(circuitOpenUntil).toISOString(),
+          );
+          circuitLogUntil = circuitOpenUntil;
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, 30_000)));
+        continue;
+      }
+      if (circuitOpenUntil > 0) {
+        circuitOpenUntil = 0;
+        circuitLogUntil = 0;
+        console.warn('[echelon-worker] provider circuit half-open; allowing one probe job');
+        await writeCircuitState().catch((stateError) =>
+          console.error('[echelon-worker] failed to persist half-open circuit state:', stateError.message),
+        );
+      }
+
       const job = await claimNextJob();
       if (!job) {
         await new Promise((r) => setTimeout(r, POLL_MS));
@@ -802,6 +875,7 @@ async function runLoop() {
 
       try {
         const responseText = await handleJob(job);
+        await resetProviderCircuit();
 
         // Normalize metadata (Postgres/Supabase may return JSON columns as string)
         let metadata = job.metadata;
@@ -872,6 +946,7 @@ async function runLoop() {
         console.log('[echelon-worker] job', job.id, '→ done');
       } catch (err) {
         console.error('[echelon-worker] job', job.id, 'error:', err.message);
+        await recordProviderFailure(err);
         await ackJob(job.id, 'failed', { error: err.message }).catch((e) =>
           console.error('[echelon-worker] ack failed:', e.message)
         );

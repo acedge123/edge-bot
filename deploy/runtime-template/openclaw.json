@@ -4,10 +4,11 @@
     "defaults": {
       "workspace": "/app/.openclaw/workspace",
       "model": {
-        "primary": "openai/gpt-5.6-sol",
-        "fallbacks": ["openai/gpt-5.5"]
+        "primary": "openai/gpt-5.4-mini",
+        "fallbacks": ["openai/gpt-4o-mini"]
       },
       "heartbeat": {
+        "every": "0m",
         "agentId": "main"
       },
       "systemAgent": {
@@ -16,17 +17,25 @@
     },
     "entries": {
       "main": {
-        "model": "openai/gpt-5.6-sol",
+        "model": "openai/gpt-5.4-mini",
         "workspace": "/app/.openclaw/workspace"
       },
       "main-med": {
-        "model": "openai/gpt-5.6-sol",
+        "model": "openai/gpt-5.4",
         "workspace": "/app/.openclaw/workspace"
       },
       "main-critical": {
         "model": "openai/gpt-5.6-sol",
         "workspace": "/app/.openclaw/workspace"
       }
+    }
+  },
+  "memory": {
+    "search": {
+      "enabled": false,
+      "provider": "none",
+      "rememberAcrossConversations": false,
+      "sources": ["memory"]
     }
   },
   "env": {

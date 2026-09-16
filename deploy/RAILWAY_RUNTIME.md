@@ -15,7 +15,7 @@
 | **Service name** | *(e.g. edge-bot gateway service)* |
 | **Environment** | `production` / `preview` / other |
 | **Persistent volume** | Yes — attached to this service |
-| **Volume mount path** | `/app/.openclaw/workspace` *(expected by `deploy/entrypoint.sh` for durable `MEMORY.md`, `SOUL.md`, `workspace/cron/`, cloned `repos/`; **confirm** under Service → Volumes)* |
+| **Volume mount path** | `/app/.openclaw/workspace` *(expected by `deploy/entrypoint.sh` for durable workspace files and OpenClaw runtime state under `.openclaw-state/`; **confirm** under Service → Volumes)* |
 | **Volume label (Railway UI)** | *(optional; helps humans find the volume)* |
 | **Public URL(s)** | *(Railway-generated or custom domain; no secrets)* |
 
@@ -47,7 +47,7 @@ Optional CLI after `railway link` from this repo: `railway status` (service cont
 
 ## For AI agents
 
-- **Persistence:** If **Volume mount path** above is `/app/.openclaw/workspace` (or another documented path that backs the OpenClaw workspace), treat **`MEMORY.md`**, **`SOUL.md`**, **`workspace/cron/`**, and **cloned repos** under that tree as **durable across redeploys** unless the user says otherwise.
+- **Persistence:** If **Volume mount path** above is `/app/.openclaw/workspace` (or another documented path that backs the OpenClaw workspace), treat **`MEMORY.md`**, **`SOUL.md`**, **`.openclaw-state/cron/`**, and **cloned repos** under that tree as **durable across redeploys** unless the user says otherwise.
 - **Secrets:** Never expect env values in this file; use env var **names** from `deploy/RAILWAY_SKILLS_AND_LEARNINGS.md` or service docs.
 
 ---
@@ -57,5 +57,5 @@ Optional CLI after `railway link` from this repo: `railway status` (service cont
 Use this (or a shortened variant) in **MEMORY.md**, Agent Vault, or “remember this” so the hosted agent models its environment correctly. Refresh when the **Production snapshot** table above changes.
 
 ```text
-Hosted runtime (edge-bot / OpenClaw on Railway): I run in a Docker container built from this repo’s deploy/Dockerfile. OpenClaw state dir is /app/.openclaw; the agent workspace is /app/.openclaw/workspace. A Railway persistent volume is mounted on that workspace path, so MEMORY.md, SOUL.md, workspace/cron/, and repos cloned under the workspace survive redeploys. Secrets (API keys, tokens) come from Railway env vars, not from files in git. Ephemeral paths outside the volume (e.g. other dirs under /app) reset on new containers. Canonical infra details: deploy/RAILWAY_RUNTIME.md in-repo.
+Hosted runtime (edge-bot / OpenClaw on Railway): I run in a Docker container built from this repo’s deploy/Dockerfile. The agent workspace is /app/.openclaw/workspace and mutable OpenClaw state is /app/.openclaw/workspace/.openclaw-state. A Railway persistent volume is mounted on the workspace path, so MEMORY.md, SOUL.md, .openclaw-state/cron/, sessions, and repos cloned under the workspace survive redeploys. Secrets (API keys, tokens) come from Railway env vars, not from files in git. Ephemeral paths outside the volume reset on new containers. Canonical infra details: deploy/RAILWAY_RUNTIME.md in-repo.
 ```
