@@ -119,12 +119,19 @@ if [ "${OPENCLAW_RUN_UPDATE_REPAIR:-0}" = "1" ]; then
 fi
 echo "[entrypoint] required plugin packages ready"
 
-# Exec approvals are host-local state. Seed the reviewed binary on every
-# container start so headless Railway sessions do not depend on UI approvals.
-for agent_id in main main-light main-med main-critical; do
-  openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage"
-done
-echo "[entrypoint] allowlisted /usr/local/bin/mom-walk-manage for hosted agents"
+# Exec approvals share the persistent SQLite state. Seed once per agent-roster
+# version instead of invoking the migration-heavy CLI on every container boot.
+APPROVALS_MARKER="${OPENCLAW_STATE_DIR}/state/.mom-walk-manage-approvals-v2"
+if [ ! -f "${APPROVALS_MARKER}" ]; then
+  for agent_id in main main-light main-med main-critical; do
+    openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage" >/dev/null
+  done
+  mkdir -p "$(dirname "${APPROVALS_MARKER}")"
+  touch "${APPROVALS_MARKER}"
+  echo "[entrypoint] seeded /usr/local/bin/mom-walk-manage approvals"
+else
+  echo "[entrypoint] persisted mom-walk-manage approvals present"
+fi
 
 export PORT="${PORT:-18789}"
 export OPENCLAW_GATEWAY_PORT="${PORT}"
