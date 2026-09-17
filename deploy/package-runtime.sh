@@ -64,6 +64,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .memory.search.provider = "none" |
     .memory.search.rememberAcrossConversations = false |
     .memory.search.sources = ["memory"] |
+    .plugins.entries["memory-core"].config.dreaming.enabled = false |
     del(.auth.profiles["openai:default"]) |
     del(.auth.order.openai) |
     del(.agents.list)
@@ -72,6 +73,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.heartbeat.every == "0m" and
     .memory.search.enabled == false and
     .memory.search.provider == "none" and
+    .plugins.entries["memory-core"].config.dreaming.enabled == false and
     .agents.entries.main.model == "openai/gpt-5.4-mini" and
     .agents.entries["main-med"].model == "openai/gpt-5.4" and
     .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"

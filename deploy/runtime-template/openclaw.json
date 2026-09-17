@@ -38,6 +38,17 @@
       "sources": ["memory"]
     }
   },
+  "plugins": {
+    "entries": {
+      "memory-core": {
+        "config": {
+          "dreaming": {
+            "enabled": false
+          }
+        }
+      }
+    }
+  },
   "env": {
     "vars": {}
   },

@@ -9,6 +9,7 @@ jq -e '
   .agents.defaults.heartbeat.every == "0m" and
   .memory.search.enabled == false and
   .memory.search.provider == "none" and
+  .plugins.entries["memory-core"].config.dreaming.enabled == false and
   .agents.entries.main.model == "openai/gpt-5.4-mini" and
   .agents.entries["main-med"].model == "openai/gpt-5.4" and
   .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
