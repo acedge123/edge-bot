@@ -9,7 +9,7 @@ OpenClaw upgrades are cost-sensitive production changes. Do not bump the image v
 3. Ordinary text and CSV jobs use `chat.send`. Only real image jobs use `/v1/chat/completions`.
 4. The worker does not build and resend its own transcript or bootstrap bundle. OpenClaw owns session context and compaction.
 5. Provider quota, rate-limit, and timeout failures open the durable circuit breaker before the queue can drain into repeated paid attempts.
-6. Models remain tiered: `gpt-5.4-mini` for normal work, `gpt-5.4` for code/reasoning, and `gpt-5.6-sol` only for critical work.
+6. Models remain tiered: `gpt-5.6-sol` is the reliable default and `gpt-5-mini` is used only for explicitly lightweight work.
 7. Mutable OpenClaw state, including cron and sessions, remains under the Railway-mounted workspace at `.openclaw-state/`.
 
 ## Upgrade procedure

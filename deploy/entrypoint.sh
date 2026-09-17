@@ -93,22 +93,35 @@ echo "[entrypoint] persistent state: ${OPENCLAW_STATE_DIR}; cron: ${OPENCLAW_STA
 
 configure_roles_anywhere
 
-# OpenClaw 2026.8+ fail-closes when enabled plugins need capability consent.
-# This hosted service accepts both bundled runtime plugins so gateway startup
-# does not block before the Echelon worker can run.
-echo "[entrypoint] accepting OpenClaw plugin capabilities for codex and brave"
-openclaw plugins install codex --accept-capabilities || openclaw plugins enable codex --accept-capabilities || true
-openclaw plugins install brave --accept-capabilities || openclaw plugins enable brave --accept-capabilities || true
+# Plugin packages persist on the Railway volume. Install an exact compatible
+# version only for a fresh volume; never resolve/download latest on every boot.
+OPENCLAW_PLUGIN_VERSION="${OPENCLAW_PLUGIN_VERSION:-2026.8.2}"
+PLUGIN_PROJECTS_DIR="${OPENCLAW_STATE_DIR}/npm/projects"
+
+ensure_plugin_package() {
+  package_name="$1"
+  for plugin_dir in "${PLUGIN_PROJECTS_DIR}"/*/node_modules/${package_name}; do
+    if [ -d "${plugin_dir}" ]; then
+      echo "[entrypoint] plugin package present: ${package_name}"
+      return 0
+    fi
+  done
+
+  echo "[entrypoint] installing missing plugin package: ${package_name}@${OPENCLAW_PLUGIN_VERSION}"
+  openclaw plugins install "${package_name}@${OPENCLAW_PLUGIN_VERSION}" --accept-capabilities
+}
+
+ensure_plugin_package "@openclaw/codex"
+ensure_plugin_package "@openclaw/brave-plugin"
 if [ "${OPENCLAW_RUN_UPDATE_REPAIR:-0}" = "1" ]; then
   echo "[entrypoint] running explicitly enabled OpenClaw update repair"
   openclaw update repair || true
 fi
-echo "[entrypoint] plugin inventory after consent repair"
-openclaw plugins list --json || openclaw plugins list || true
+echo "[entrypoint] required plugin packages ready"
 
 # Exec approvals are host-local state. Seed the reviewed binary on every
 # container start so headless Railway sessions do not depend on UI approvals.
-for agent_id in main main-med main-critical; do
+for agent_id in main main-light main-med main-critical; do
   openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage"
 done
 echo "[entrypoint] allowlisted /usr/local/bin/mom-walk-manage for hosted agents"

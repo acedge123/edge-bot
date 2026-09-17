@@ -35,48 +35,9 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { pickRoutedAgent } from './echelon-model-route.mjs';
 
 const execFileAsync = promisify(execFile);
-
-/**
- * Model routing for the hosted agent.
- *
- * Control point: route to a specific OpenClaw agent id that is pre-configured with a backing model.
- * - `main`         => default hosted OpenClaw model
- * - `main-med`     => medium-complexity hosted OpenClaw agent
- * - `main-critical`=> critical hosted OpenClaw agent
- *
- * Override tags (user text):
- * - @model:gpt-5.6-sol    => main-critical
- */
-function pickRoutedAgent(requestText) {
-  const raw = String(requestText || '');
-
-  // Explicit override tag takes precedence.
-  const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
-  if (tag) {
-    if (tag === 'gpt-5.6-sol' || tag === 'gpt-5.6') return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.6-sol' };
-  }
-
-  const text = raw.toLowerCase();
-
-  const isCritical = /\b(threat model|security review|sec review|vulnerability|exploit|authz|authorization|privilege|rbac|secrets?|credential|injection|xss|ssrf|rce|critical|incident)\b/.test(
-    text,
-  );
-  if (isCritical) return { agentId: 'main-critical', reason: 'heuristic:security/critical' };
-
-  const isCode = /\b(code|refactor|implement|bug|fix|typescript|javascript|python|sql|dockerfile|pr review|pull request|diff|lint|tests?)\b/.test(
-    text,
-  );
-  if (isCode) return { agentId: 'main-med', reason: 'heuristic:code' };
-
-  const isMediumReasoning = /\b(design|architecture|trade-?offs|analy[sz]e|root cause|debug|plan)\b/.test(
-    text,
-  );
-  if (isMediumReasoning) return { agentId: 'main-med', reason: 'heuristic:medium-reasoning' };
-
-  return { agentId: 'main', reason: 'default:cheap' };
-}
 
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -334,7 +295,7 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
  * - image: content includes { type: "image_url", image_url: { url } }
  * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
-async function gatewayChatCompletionsWithImages({ requestText, attachments, jobId = '' }) {
+async function gatewayChatCompletionsWithImages({ requestText, attachments, metadata = {}, jobId = '' }) {
   const content = [{ type: 'text', text: requestText }];
 
   const atts = Array.isArray(attachments) ? attachments : [];
@@ -421,7 +382,7 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
     });
   }
 
-  const routed = pickRoutedAgent(requestText);
+  const routed = pickRoutedAgent(requestText, metadata);
   const model = `openclaw:${routed.agentId}`;
   console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason);
 
@@ -789,7 +750,7 @@ async function handleJob(job) {
   const isSmsJob = source === 'sms';
   const isSlackJob = source === 'slack';
 
-  const routed = pickRoutedAgent(message);
+  const routed = pickRoutedAgent(message, metadata);
   const agentId = routed.agentId;
 
   let sessionKey;
@@ -827,7 +788,7 @@ async function handleJob(job) {
       attachments.length,
       'attachment(s) (vision only)',
     );
-    return gatewayChatCompletionsWithImages({ requestText: message, attachments, jobId });
+    return gatewayChatCompletionsWithImages({ requestText: message, attachments, metadata, jobId });
   }
 
   let outboundMessage = message;

@@ -7,7 +7,7 @@ These are production invariants for edge-bot on Railway. They were restored afte
 3. Ordinary text and CSV jobs use `chat.send`, allowing OpenClaw to own compact session context. Only real image jobs use `/v1/chat/completions`.
 4. The queue worker never assembles and resends a parallel transcript or repeated workspace bootstrap context.
 5. Provider quota, rate-limit, and timeout failures open the persistent circuit breaker before more jobs are claimed.
-6. Models stay tiered: `gpt-5.4-mini` for normal work, `gpt-5.4` for code/reasoning, and `gpt-5.6-sol` only for critical work.
+6. Models stay tiered: `gpt-5.6-sol` is the reliable default and `gpt-5-mini` is used only for explicit or narrowly classified lightweight work.
 7. Mutable state and cron live under `workspace/.openclaw-state/` on the Railway volume. Startup must not run automatic update repair.
 
 Before an upgrade, record a 24-hour request/token/spend baseline, run `deploy/verify-cost-controls.sh`, test one controlled job, and inspect logs for idle turns, embeddings, repeated context, and queue churn. A container that merely starts is not a successful upgrade.

@@ -54,17 +54,19 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     del(.agent) |
     .agents.ownership = "explicit" |
     .agents.defaults.workspace = "/app/.openclaw/workspace" |
-    .agents.defaults.model.primary = "openai/gpt-5.4-mini" |
-    .agents.defaults.model.fallbacks = ["openai/gpt-4o-mini"] |
+    .agents.defaults.model.primary = "openai/gpt-5.6-sol" |
+    .agents.defaults.model.fallbacks = ["openai/gpt-5-mini"] |
     .agents.defaults.heartbeat.every = "0m" |
     .agents.defaults.heartbeat.agentId = "main" |
     .agents.defaults.systemAgent.agentId = "main" |
-    .agents.entries = {"main":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.4","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
+    .agents.entries = {"main":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-light":{"model":"openai/gpt-5-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
     .memory.search.enabled = false |
     .memory.search.provider = "none" |
     .memory.search.rememberAcrossConversations = false |
     .memory.search.sources = ["memory"] |
     .plugins.entries["memory-core"].config.dreaming.enabled = false |
+    .plugins.entries.brave.enabled = true |
+    .plugins.entries.codex.enabled = true |
     del(.auth.profiles["openai:default"]) |
     del(.auth.order.openai) |
     del(.agents.list)
@@ -74,8 +76,10 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .memory.search.enabled == false and
     .memory.search.provider == "none" and
     .plugins.entries["memory-core"].config.dreaming.enabled == false and
-    .agents.entries.main.model == "openai/gpt-5.4-mini" and
-    .agents.entries["main-med"].model == "openai/gpt-5.4" and
+    .agents.defaults.model.primary == "openai/gpt-5.6-sol" and
+    .agents.entries.main.model == "openai/gpt-5.6-sol" and
+    .agents.entries["main-light"].model == "openai/gpt-5-mini" and
+    .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and
     .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
   ' "$DEST/openclaw.json" >/dev/null
   echo "Applied Railway cost controls: tiered models, disabled heartbeat, disabled remote memory indexing"

@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { pickRoutedAgent } from './echelon-model-route.mjs';
+
+test('defaults ordinary agent work to the reliable model', () => {
+  assert.deepEqual(pickRoutedAgent('Help me prepare for tomorrow'), {
+    agentId: 'main',
+    reason: 'default:reliable',
+  });
+});
+
+test('routes explicit lightweight work to Mini', () => {
+  assert.equal(pickRoutedAgent('@model:gpt-5-mini rewrite this').agentId, 'main-light');
+  assert.equal(pickRoutedAgent('Anything', { model_tier: 'lightweight' }).agentId, 'main-light');
+  assert.equal(pickRoutedAgent('Proofread this paragraph').agentId, 'main-light');
+});
+
+test('does not let a transformation verb downgrade complex work', () => {
+  assert.equal(pickRoutedAgent('Summarize this security review').agentId, 'main-critical');
+  assert.equal(pickRoutedAgent('Rewrite this architecture plan').agentId, 'main-med');
+});
+
+test('routes code and explicit Sol work to Sol-backed agents', () => {
+  assert.equal(pickRoutedAgent('Fix this TypeScript test').agentId, 'main-med');
+  assert.equal(pickRoutedAgent('@model:gpt-5.6-sol answer this').agentId, 'main-critical');
+});
