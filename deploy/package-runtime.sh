@@ -58,12 +58,16 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.model.fallbacks = ["openai/gpt-5-mini"] |
     .agents.defaults.heartbeat.every = "0m" |
     .agents.defaults.heartbeat.agentId = "main" |
+    .agents.defaults.bootstrapMaxChars = 7000 |
     .agents.defaults.systemAgent.agentId = "main" |
     .agents.entries = {"main":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-light":{"model":"openai/gpt-5-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
     .memory.search.enabled = false |
     .memory.search.provider = "none" |
     .memory.search.rememberAcrossConversations = false |
     .memory.search.sources = ["memory"] |
+    .cron.enabled = false |
+    .cron.triggers.enabled = false |
+    .skills.workshop.autonomous.mode = "off" |
     .plugins.entries["memory-core"].config.dreaming.enabled = false |
     .plugins.entries.brave.enabled = true |
     .plugins.entries.codex.enabled = true |
@@ -73,8 +77,12 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
   jq -e '
     .agents.defaults.heartbeat.every == "0m" and
+    .agents.defaults.bootstrapMaxChars == 7000 and
     .memory.search.enabled == false and
     .memory.search.provider == "none" and
+    .cron.enabled == false and
+    .cron.triggers.enabled == false and
+    .skills.workshop.autonomous.mode == "off" and
     .plugins.entries["memory-core"].config.dreaming.enabled == false and
     .agents.defaults.model.primary == "openai/gpt-5.6-sol" and
     .agents.entries.main.model == "openai/gpt-5.6-sol" and
@@ -82,7 +90,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and
     .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
   ' "$DEST/openclaw.json" >/dev/null
-  echo "Applied Railway cost controls: tiered models, disabled heartbeat, disabled remote memory indexing"
+  echo "Applied Railway cost controls: tiered models, disabled autonomous work, bounded bootstrap context"
 fi
 
 echo "Done. Runtime packaged in $DEST"

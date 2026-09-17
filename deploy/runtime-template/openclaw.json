@@ -11,6 +11,7 @@
         "every": "0m",
         "agentId": "main"
       },
+      "bootstrapMaxChars": 7000,
       "systemAgent": {
         "agentId": "main"
       }
@@ -40,6 +41,19 @@
       "provider": "none",
       "rememberAcrossConversations": false,
       "sources": ["memory"]
+    }
+  },
+  "cron": {
+    "enabled": false,
+    "triggers": {
+      "enabled": false
+    }
+  },
+  "skills": {
+    "workshop": {
+      "autonomous": {
+        "mode": "off"
+      }
     }
   },
   "plugins": {

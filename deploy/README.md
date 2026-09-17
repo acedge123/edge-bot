@@ -64,6 +64,7 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://your-project.supabase.co/functions/v1`) |
 | `ECHELON_CIRCUIT_FAILURE_THRESHOLD` | Optional. Consecutive provider failures before the worker stops claiming jobs; default `2`. |
 | `ECHELON_CIRCUIT_OPEN_MS` | Optional. Provider-failure claim pause; default `900000` (15 minutes). |
+| `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` | Optional explicit opt-in. Unset/false keeps automated app signals deterministic and zero-LLM. |
 | `OPENCLAW_RUN_UPDATE_REPAIR` | Optional migration switch. Leave unset/`0`; use `1` only during an explicitly reviewed upgrade. |
 | `GOOGLE_MAPS_API_KEY` | Optional. Google **Places API (New)** for venue search/details (sponsors enrichment). Enable Places API (New) in Google Cloud. See `workspace/skills/google-places/SKILL.md`. |
 | `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Must match the Mom Walk Supabase `AGENT_MINT_SECRET`. |

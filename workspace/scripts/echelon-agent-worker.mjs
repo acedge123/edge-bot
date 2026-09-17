@@ -16,6 +16,7 @@
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
  *   SIGNAL_APPROVAL_SLACK_CHANNEL - Slack channel for approval-required app signals (default C0BVBR6029Y).
+ *   ECHELON_PROCESS_APP_SIGNALS_WITH_LLM - Opt-in for model processing of app signals (default false).
  *   ECHELON_CIRCUIT_FAILURE_THRESHOLD - Consecutive provider failures before pausing claims (default 2).
  *   ECHELON_CIRCUIT_OPEN_MS - How long to pause claims after the circuit opens (default 15 minutes).
  *
@@ -36,6 +37,11 @@ import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pickRoutedAgent } from './echelon-model-route.mjs';
+import {
+  buildDeterministicAppSignalResponse,
+  isApprovalRequiredSignalJob,
+  shouldBypassAppSignalModel,
+} from './echelon-app-signal-policy.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -74,6 +80,9 @@ const SIGNAL_APPROVAL_SLACK_CHANNEL = (
   process.env.SLACK_OPS_CHANNEL_NAME ||
   'C0BVBR6029Y'
 ).trim();
+const PROCESS_APP_SIGNALS_WITH_LLM = /^(1|true|yes)$/i.test(
+  String(process.env.ECHELON_PROCESS_APP_SIGNALS_WITH_LLM || '').trim(),
+);
 function positiveIntegerEnv(name, fallback, minimum) {
   const parsed = Number.parseInt(process.env[name] || String(fallback), 10);
   return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
@@ -169,25 +178,6 @@ function circuitWaitMs() {
 
 readCircuitState();
 
-function isTruthyMetadata(value) {
-  if (value === true) return true;
-  const text = String(value || '').trim().toLowerCase();
-  return text === 'true' || text === '1' || text === 'yes';
-}
-
-function isApprovalRequiredSignalJob(metadata, messageText = '') {
-  const source = String(metadata?.source || '').trim();
-  const hasSignalIdentity = source === 'app_signal' || !!metadata?.signal_event_id || !!metadata?.signal_type;
-  if (!hasSignalIdentity) return false;
-
-  return (
-    isTruthyMetadata(metadata?.requires_approval) ||
-    isTruthyMetadata(metadata?.triage_only) ||
-    String(metadata?.route || '').trim() === 'approval_required' ||
-    /\bAPPROVAL REQUIRED\b/i.test(String(messageText || ''))
-  );
-}
-
 function readDeliveryMarker(kind, jobId) {
   const p = join(ECHELON_DELIVERY_DIR(), `${kind}-${safeJobIdForPath(jobId)}.json`);
   if (!existsSync(p)) return null;
@@ -234,6 +224,7 @@ if (checkOnly) {
   console.log('  GATEWAY_HTTP_URL:', GATEWAY_HTTP_URL);
   console.log('  WORKER_ID:', WORKER_ID);
   console.log('  SIGNAL_APPROVAL_SLACK_CHANNEL:', SIGNAL_APPROVAL_SLACK_CHANNEL || '(missing)');
+  console.log('  App signal model processing:', PROCESS_APP_SIGNALS_WITH_LLM ? 'enabled' : 'disabled (deterministic)');
   console.log('  CIA_URL:', CIA_URL || '(missing)');
   console.log('  CIA_ANON_KEY:', CIA_ANON_KEY ? '***set***' : '(missing)');
   console.log('  EXECUTOR_SECRET:', EXECUTOR_SECRET ? '***set***' : '(missing)');
@@ -749,6 +740,11 @@ async function handleJob(job) {
   const source = String(metadata.source || '').trim();
   const isSmsJob = source === 'sms';
   const isSlackJob = source === 'slack';
+
+  if (shouldBypassAppSignalModel(metadata, PROCESS_APP_SIGNALS_WITH_LLM)) {
+    console.log('[echelon-worker] job', jobId, 'app_signal bypassed model processing');
+    return buildDeterministicAppSignalResponse({ message, metadata });
+  }
 
   const routed = pickRoutedAgent(message, metadata);
   const agentId = routed.agentId;
