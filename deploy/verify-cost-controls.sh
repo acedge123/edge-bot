@@ -19,7 +19,11 @@ jq -e '
   .agents.defaults.compaction.memoryFlush.enabled == false and
   .session.reset.mode == "idle" and
   .session.reset.idleMinutes == 60 and
-  .skills.limits.maxSkillsPromptChars == 8000 and
+  .skills.allowBundled == [] and
+  .skills.limits.maxSkillsInPrompt == 12 and
+  .skills.limits.maxSkillsPromptChars == 2200 and
+  (.agents.entries.main.skills | length) == 12 and
+  (.agents.entries["main-med"].skills | length) == 12 and
   .memory.search.enabled == false and
   .memory.search.provider == "none" and
   .cron.enabled == false and

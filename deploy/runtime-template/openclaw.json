@@ -50,19 +50,23 @@
     "entries": {
       "main": {
         "model": "openai/gpt-5.6-luna",
-        "workspace": "/app/.openclaw/workspace"
+        "workspace": "/app/.openclaw/workspace",
+        "skills": ["secure-gmail", "github", "brave-search", "Agent Browser", "mom-walk-manage", "youtrack-via-repo-c", "small-business-finance-tax", "sponsors-database", "slack", "supabase", "wiki-engine", "google-places"]
       },
       "main-light": {
         "model": "openai/gpt-5.6-luna",
-        "workspace": "/app/.openclaw/workspace"
+        "workspace": "/app/.openclaw/workspace",
+        "skills": ["secure-gmail", "github", "brave-search", "Agent Browser", "mom-walk-manage", "youtrack-via-repo-c", "small-business-finance-tax", "sponsors-database", "slack", "supabase", "wiki-engine", "google-places"]
       },
       "main-med": {
         "model": "openai/gpt-5.6-sol",
-        "workspace": "/app/.openclaw/workspace"
+        "workspace": "/app/.openclaw/workspace",
+        "skills": ["github", "repo-map", "pr-code-review-qa", "cursor-agent", "supabase", "youtrack-via-repo-c", "mom-walk-manage", "Agent Browser", "brave-search", "aws-roles-anywhere", "governance-runtime", "secure-gmail"]
       },
       "main-critical": {
         "model": "openai/gpt-5.6-sol",
-        "workspace": "/app/.openclaw/workspace"
+        "workspace": "/app/.openclaw/workspace",
+        "skills": ["github", "repo-map", "pr-code-review-qa", "cursor-agent", "supabase", "youtrack-via-repo-c", "mom-walk-manage", "Agent Browser", "brave-search", "aws-roles-anywhere", "governance-runtime", "secure-gmail"]
       }
     }
   },
@@ -81,8 +85,10 @@
     }
   },
   "skills": {
+    "allowBundled": [],
     "limits": {
-      "maxSkillsPromptChars": 8000
+      "maxSkillsInPrompt": 12,
+      "maxSkillsPromptChars": 2200
     },
     "workshop": {
       "autonomous": {

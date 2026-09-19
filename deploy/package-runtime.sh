@@ -61,7 +61,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.heartbeat.agentId = "main" |
     .agents.defaults.bootstrapMaxChars = 7000 |
     .agents.defaults.systemAgent.agentId = "main" |
-    .agents.entries = {"main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},"main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
+    .agents.entries = {"main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace","skills":["secure-gmail","github","brave-search","Agent Browser","mom-walk-manage","youtrack-via-repo-c","small-business-finance-tax","sponsors-database","slack","supabase","wiki-engine","google-places"]},"main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace","skills":["secure-gmail","github","brave-search","Agent Browser","mom-walk-manage","youtrack-via-repo-c","small-business-finance-tax","sponsors-database","slack","supabase","wiki-engine","google-places"]},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace","skills":["github","repo-map","pr-code-review-qa","cursor-agent","supabase","youtrack-via-repo-c","mom-walk-manage","Agent Browser","brave-search","aws-roles-anywhere","governance-runtime","secure-gmail"]},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace","skills":["github","repo-map","pr-code-review-qa","cursor-agent","supabase","youtrack-via-repo-c","mom-walk-manage","Agent Browser","brave-search","aws-roles-anywhere","governance-runtime","secure-gmail"]}} |
     .memory.search.enabled = false |
     .memory.search.provider = "none" |
     .memory.search.rememberAcrossConversations = false |
@@ -69,6 +69,9 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .cron.enabled = false |
     .cron.triggers.enabled = false |
     .skills.workshop.autonomous.mode = "off" |
+    .skills.allowBundled = [] |
+    .skills.limits.maxSkillsInPrompt = 12 |
+    .skills.limits.maxSkillsPromptChars = 2200 |
     .plugins.entries["memory-core"].config.dreaming.enabled = false |
     .plugins.entries.brave.enabled = true |
     .plugins.entries.codex.enabled = true |
@@ -80,6 +83,8 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.heartbeat.every == "0m" and
     .agents.defaults.thinkingDefault == "low" and
     .agents.defaults.bootstrapMaxChars == 7000 and
+    .skills.limits.maxSkillsInPrompt == 12 and
+    .skills.limits.maxSkillsPromptChars == 2200 and
     .memory.search.enabled == false and
     .memory.search.provider == "none" and
     .cron.enabled == false and

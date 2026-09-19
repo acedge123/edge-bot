@@ -14,16 +14,18 @@ del(.agent)
 | .agents.defaults.compaction = {"enabled":true,"mode":"safeguard","thinkingLevel":"low","keepRecentTokens":8000,"recentTurnsPreserve":2,"postIndexSync":"off","postCompactionSections":[],"maxActiveTranscriptBytes":"1mb","memoryFlush":{"enabled":false}}
 | .agents.defaults.systemAgent.agentId = "main"
 | .agents.entries = {
-    "main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},
-    "main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},
-    "main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},
-    "main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}
+    "main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace","skills":["secure-gmail","github","brave-search","Agent Browser","mom-walk-manage","youtrack-via-repo-c","small-business-finance-tax","sponsors-database","slack","supabase","wiki-engine","google-places"]},
+    "main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace","skills":["secure-gmail","github","brave-search","Agent Browser","mom-walk-manage","youtrack-via-repo-c","small-business-finance-tax","sponsors-database","slack","supabase","wiki-engine","google-places"]},
+    "main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace","skills":["github","repo-map","pr-code-review-qa","cursor-agent","supabase","youtrack-via-repo-c","mom-walk-manage","Agent Browser","brave-search","aws-roles-anywhere","governance-runtime","secure-gmail"]},
+    "main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace","skills":["github","repo-map","pr-code-review-qa","cursor-agent","supabase","youtrack-via-repo-c","mom-walk-manage","Agent Browser","brave-search","aws-roles-anywhere","governance-runtime","secure-gmail"]}
   }
 | .memory.search = {"enabled":false,"provider":"none","rememberAcrossConversations":false,"sources":["memory"]}
 | .cron.enabled = false
 | .cron.triggers.enabled = false
 | .session.reset = {"mode":"idle","idleMinutes":60}
-| .skills.limits.maxSkillsPromptChars = 8000
+| .skills.allowBundled = []
+| .skills.limits.maxSkillsInPrompt = 12
+| .skills.limits.maxSkillsPromptChars = 2200
 | .skills.workshop.autonomous.mode = "off"
 | .plugins.entries["memory-core"].config.dreaming.enabled = false
 | .plugins.entries.brave.enabled = true
