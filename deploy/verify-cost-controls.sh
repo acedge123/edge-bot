@@ -25,9 +25,9 @@ jq -e '
   .cron.triggers.enabled == false and
   .skills.workshop.autonomous.mode == "off" and
   .plugins.entries["memory-core"].config.dreaming.enabled == false and
-  .agents.defaults.model.primary == "openai/gpt-5-mini" and
-  .agents.entries.main.model == "openai/gpt-5-mini" and
-  .agents.entries["main-light"].model == "openai/gpt-5-mini" and
+  .agents.defaults.model.primary == "openai/gpt-5.6-luna" and
+  .agents.entries.main.model == "openai/gpt-5.6-luna" and
+  .agents.entries["main-light"].model == "openai/gpt-5.6-luna" and
   .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and
   .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
 ' "$CONFIG" >/dev/null
@@ -46,6 +46,7 @@ node --test "$ROOT_DIR/workspace/scripts/echelon-model-route.test.mjs" >/dev/nul
 node --test "$ROOT_DIR/workspace/scripts/echelon-app-signal-policy.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-session-key.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-capability-query.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/echelon-workbook-attachment.test.mjs" >/dev/null
 
 if grep -q 'plugins list' "$ROOT_DIR/deploy/entrypoint.sh"; then
   echo "Entrypoint must not dump the full plugin inventory during startup." >&2

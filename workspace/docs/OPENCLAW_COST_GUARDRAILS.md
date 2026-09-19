@@ -12,7 +12,7 @@ These are production invariants for edge-bot on Railway. They were restored afte
 8. Repeated bootstrap injection is skipped on continuation turns, startup daily-memory injection and pre-compaction memory flush are disabled, and old tool output is pruned.
 9. Installed-skill capability checks are deterministic and bypass the model.
 10. Provider quota, rate-limit, and timeout failures open the persistent circuit breaker before more jobs are claimed.
-11. Models stay tiered: `gpt-5-mini` handles ordinary work; `gpt-5.6-sol` handles code, debugging, architecture, security, and explicitly complex work.
+11. Models stay tiered: `gpt-5.6-luna` handles ordinary work; `gpt-5.6-sol` handles code, debugging, architecture, security, and explicitly complex work. Do not route to `gpt-5-mini`; the hosted authentication rejects that route.
 12. Mutable state and cron live under `workspace/.openclaw-state/` on the Railway volume. Startup must not run automatic update repair.
 
 Before an upgrade, record a 24-hour request/token/spend baseline, run `deploy/verify-cost-controls.sh`, test one controlled job, and inspect logs for idle turns, embeddings, repeated context, and queue churn. A container that merely starts is not a successful upgrade.

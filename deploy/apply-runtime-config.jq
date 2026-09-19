@@ -1,6 +1,6 @@
 del(.agent)
 | .agents.ownership = "explicit"
-| .agents.defaults.model.primary = "openai/gpt-5-mini"
+| .agents.defaults.model.primary = "openai/gpt-5.6-luna"
 | .agents.defaults.model.fallbacks = ["openai/gpt-5.6-sol"]
 | .agents.defaults.workspace = "/app/.openclaw/workspace"
 | .agents.defaults.heartbeat = {"every":"0m","agentId":"main"}
@@ -13,8 +13,8 @@ del(.agent)
 | .agents.defaults.compaction = {"enabled":true,"mode":"safeguard","thinkingLevel":"low","keepRecentTokens":8000,"recentTurnsPreserve":2,"postIndexSync":"off","postCompactionSections":[],"maxActiveTranscriptBytes":"1mb","memoryFlush":{"enabled":false}}
 | .agents.defaults.systemAgent.agentId = "main"
 | .agents.entries = {
-    "main":{"model":"openai/gpt-5-mini","workspace":"/app/.openclaw/workspace"},
-    "main-light":{"model":"openai/gpt-5-mini","workspace":"/app/.openclaw/workspace"},
+    "main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},
+    "main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},
     "main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},
     "main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}
   }

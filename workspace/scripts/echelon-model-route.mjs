@@ -8,13 +8,13 @@ function normalizedMetadataValue(metadata, ...keys) {
   return '';
 }
 
-/** Default ordinary work to Mini and escalate explicitly complex work to Sol. */
+/** Default ordinary work to Luna and escalate explicitly complex work to Sol. */
 export function pickRoutedAgent(requestText, metadata = {}) {
   const raw = String(requestText || '');
   const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
 
-  if (tag === 'gpt-5-mini' || tag === 'mini') {
-    return { agentId: 'main-light', reason: 'forced:@model:gpt-5-mini' };
+  if (tag === 'gpt-5.6-luna' || tag === 'luna' || tag === 'gpt-5-mini' || tag === 'mini') {
+    return { agentId: 'main-light', reason: 'forced:@model:gpt-5.6-luna' };
   }
   if (tag === 'gpt-5.6-sol' || tag === 'gpt-5.6' || tag === 'sol') {
     return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.6-sol' };

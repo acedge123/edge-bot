@@ -54,13 +54,13 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     del(.agent) |
     .agents.ownership = "explicit" |
     .agents.defaults.workspace = "/app/.openclaw/workspace" |
-    .agents.defaults.model.primary = "openai/gpt-5.6-sol" |
-    .agents.defaults.model.fallbacks = ["openai/gpt-5-mini"] |
+    .agents.defaults.model.primary = "openai/gpt-5.6-luna" |
+    .agents.defaults.model.fallbacks = ["openai/gpt-5.6-sol"] |
     .agents.defaults.heartbeat.every = "0m" |
     .agents.defaults.heartbeat.agentId = "main" |
     .agents.defaults.bootstrapMaxChars = 7000 |
     .agents.defaults.systemAgent.agentId = "main" |
-    .agents.entries = {"main":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-light":{"model":"openai/gpt-5-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
+    .agents.entries = {"main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},"main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
     .memory.search.enabled = false |
     .memory.search.provider = "none" |
     .memory.search.rememberAcrossConversations = false |
@@ -84,9 +84,9 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .cron.triggers.enabled == false and
     .skills.workshop.autonomous.mode == "off" and
     .plugins.entries["memory-core"].config.dreaming.enabled == false and
-    .agents.defaults.model.primary == "openai/gpt-5.6-sol" and
-    .agents.entries.main.model == "openai/gpt-5.6-sol" and
-    .agents.entries["main-light"].model == "openai/gpt-5-mini" and
+    .agents.defaults.model.primary == "openai/gpt-5.6-luna" and
+    .agents.entries.main.model == "openai/gpt-5.6-luna" and
+    .agents.entries["main-light"].model == "openai/gpt-5.6-luna" and
     .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and
     .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
   ' "$DEST/openclaw.json" >/dev/null

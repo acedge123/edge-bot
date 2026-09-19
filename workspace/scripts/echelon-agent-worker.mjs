@@ -39,6 +39,11 @@ import { pickRoutedAgent } from './echelon-model-route.mjs';
 import { answerCapabilityQuery } from './echelon-capability-query.mjs';
 import { buildEchelonSessionKey } from './echelon-session-key.mjs';
 import {
+  downloadWorkbookAttachment,
+  isWorkbookAttachment,
+  MAX_WORKBOOK_BYTES,
+} from './echelon-workbook-attachment.mjs';
+import {
   buildDeterministicAppSignalResponse,
   isApprovalRequiredSignalJob,
   shouldBypassAppSignalModel,
@@ -301,6 +306,7 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
   let sawImage = false;
   let sawFile = false;
   let csvSerial = 0;
+  let workbookSerial = 0;
 
   for (const att of picked) {
     const url = att?.url ? String(att.url) : '';
@@ -344,6 +350,31 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
       }
       block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
       content.push({ type: 'text', text: block });
+      continue;
+    }
+
+    if (url && isWorkbookAttachment(att)) {
+      sawFile = true;
+      const name = String(att.filename || att.name || '').trim() || 'workbook.xlsx';
+      const saved = await downloadWorkbookAttachment({
+        att,
+        workspaceRoot: WORKSPACE_ROOT,
+        jobId: jid,
+        serial: workbookSerial++,
+      });
+      if (saved.ok) {
+        console.log('[echelon-worker] saved workbook to workspace', saved.rel, 'bytes=', saved.bytes);
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached workbook: ${name}]\nThe workbook is saved at ${saved.rel} (absolute path: ${saved.abs}).\nUse Python with openpyxl for .xlsx/.xlsm or xlrd for .xls. Complete the requested analysis in this run; do not reply with only a plan.\n`,
+        });
+      } else {
+        const maxMb = Math.floor(MAX_WORKBOOK_BYTES / 1024 / 1024);
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached workbook: ${name}]\n(Unable to make this workbook available: ${saved.reason}. Supported formats are .xls/.xlsx/.xlsm up to ${maxMb} MB.)\n`,
+        });
+      }
       continue;
     }
 
@@ -476,7 +507,7 @@ async function persistCsvToWorkspace({ jobId, serial, displayName, utf8Text, tru
 function isRealImageAttachment(att) {
   if (att?.type !== 'image') return false;
   const url = att?.url ? String(att.url) : '';
-  return Boolean(url) && !looksLikeCsv(att);
+  return Boolean(url) && !looksLikeCsv(att) && !isWorkbookAttachment(att);
 }
 
 function jobNeedsCompletionsPath(attachments) {
@@ -527,6 +558,7 @@ async function augmentMessageWithFileAttachments({ requestText, attachments, job
   let message = requestText;
   let sawFile = false;
   let csvSerial = 0;
+  let workbookSerial = 0;
 
   for (const att of picked) {
     const url = att?.url ? String(att.url) : '';
@@ -537,6 +569,28 @@ async function augmentMessageWithFileAttachments({ requestText, attachments, job
         jobId: normalizedJobId,
         serial: csvSerial++,
       });
+      continue;
+    }
+    if (url && isWorkbookAttachment(att)) {
+      sawFile = true;
+      const name = String(att.filename || att.name || '').trim() || 'workbook.xlsx';
+      const saved = await downloadWorkbookAttachment({
+        att,
+        workspaceRoot: WORKSPACE_ROOT,
+        jobId: normalizedJobId,
+        serial: workbookSerial++,
+      });
+      if (saved.ok) {
+        console.log('[echelon-worker] saved workbook to workspace', saved.rel, 'bytes=', saved.bytes);
+        message += `\n\n[Attached workbook: ${name}]\n`;
+        message += `The workbook is saved at ${saved.rel} (absolute path: ${saved.abs}).\n`;
+        message += 'Use Python with openpyxl for .xlsx/.xlsm or xlrd for .xls to inspect every worksheet and value needed for the request. ';
+        message += 'Complete the requested analysis in this run; do not reply with only a plan or promise of future work.\n';
+      } else {
+        const maxMb = Math.floor(MAX_WORKBOOK_BYTES / 1024 / 1024);
+        message += `\n\n[Attached workbook: ${name}]\n`;
+        message += `(Unable to make this workbook available: ${saved.reason}. Supported formats are .xls/.xlsx/.xlsm up to ${maxMb} MB.)\n`;
+      }
       continue;
     }
     if (att?.type === 'file' && url) {

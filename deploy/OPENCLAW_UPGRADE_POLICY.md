@@ -14,7 +14,7 @@ OpenClaw upgrades are cost-sensitive production changes. Do not bump the image v
 8. Continuation turns skip repeated bootstrap injection; startup daily-memory injection and automatic pre-compaction memory flush remain disabled.
 9. Narrow installed-skill capability questions bypass the model.
 10. Provider quota, rate-limit, and timeout failures open the durable circuit breaker before the queue can drain into repeated paid attempts.
-11. Models remain tiered: `gpt-5-mini` is the default; `gpt-5.6-sol` is reserved for code, debugging, architecture, security, and explicitly complex work.
+11. Models remain tiered: `gpt-5.6-luna` is the default; `gpt-5.6-sol` is reserved for code, debugging, architecture, security, and explicitly complex work. Do not restore `gpt-5-mini` without an authenticated production probe.
 12. Mutable OpenClaw state, including cron and sessions, remains under the Railway-mounted workspace at `.openclaw-state/`.
 
 ## Upgrade procedure

@@ -11,8 +11,8 @@ FROM node:22.22.3-slim
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
 
-# Install git, ca-certificates, jq, curl, python3 (agent tools may run curl/python)
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq curl python3 \
+# Install runtime tools. openpyxl lets the hosted agent inspect Excel uploads without per-job installs.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq curl python3 python3-openpyxl python3-xlrd \
   && rm -rf /var/lib/apt/lists/*
 
 # AWS Roles Anywhere signing helper (for credential_process)
@@ -68,7 +68,7 @@ RUN test -f /app/.openclaw/openclaw.json && \
     rm /tmp/apply-runtime-config.jq
 
 # Fail the image build if an OpenClaw upgrade or config rewrite removes a cost guardrail.
-RUN jq -e '.agents.defaults.heartbeat.every == "0m" and .agents.defaults.contextInjection == "continuation-skip" and .agents.defaults.bootstrapTotalMaxChars == 12000 and .agents.defaults.startupContext.enabled == false and .agents.defaults.contextPruning.mode == "cache-ttl" and .agents.defaults.compaction.keepRecentTokens == 8000 and .agents.defaults.compaction.recentTurnsPreserve == 2 and .agents.defaults.compaction.postIndexSync == "off" and .agents.defaults.compaction.memoryFlush.enabled == false and .session.reset.idleMinutes == 60 and .skills.limits.maxSkillsPromptChars == 8000 and .memory.search.enabled == false and .memory.search.provider == "none" and .cron.enabled == false and .cron.triggers.enabled == false and .skills.workshop.autonomous.mode == "off" and .plugins.entries["memory-core"].config.dreaming.enabled == false and .agents.defaults.model.primary == "openai/gpt-5-mini" and .agents.entries.main.model == "openai/gpt-5-mini" and .agents.entries["main-light"].model == "openai/gpt-5-mini" and .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"' /app/.openclaw/openclaw.json >/dev/null
+RUN jq -e '.agents.defaults.heartbeat.every == "0m" and .agents.defaults.contextInjection == "continuation-skip" and .agents.defaults.bootstrapTotalMaxChars == 12000 and .agents.defaults.startupContext.enabled == false and .agents.defaults.contextPruning.mode == "cache-ttl" and .agents.defaults.compaction.keepRecentTokens == 8000 and .agents.defaults.compaction.recentTurnsPreserve == 2 and .agents.defaults.compaction.postIndexSync == "off" and .agents.defaults.compaction.memoryFlush.enabled == false and .session.reset.idleMinutes == 60 and .skills.limits.maxSkillsPromptChars == 8000 and .memory.search.enabled == false and .memory.search.provider == "none" and .cron.enabled == false and .cron.triggers.enabled == false and .skills.workshop.autonomous.mode == "off" and .plugins.entries["memory-core"].config.dreaming.enabled == false and .agents.defaults.model.primary == "openai/gpt-5.6-luna" and .agents.entries.main.model == "openai/gpt-5.6-luna" and .agents.entries["main-light"].model == "openai/gpt-5.6-luna" and .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"' /app/.openclaw/openclaw.json >/dev/null
 RUN OPENCLAW_STATE_DIR=/app/.openclaw openclaw config validate
 
 # Copy workspace (CONFIG.md, scripts, skills incl. repo-map, etc.)

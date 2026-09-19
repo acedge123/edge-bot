@@ -4,7 +4,7 @@
     "defaults": {
       "workspace": "/app/.openclaw/workspace",
       "model": {
-        "primary": "openai/gpt-5-mini",
+        "primary": "openai/gpt-5.6-luna",
         "fallbacks": ["openai/gpt-5.6-sol"]
       },
       "heartbeat": {
@@ -48,11 +48,11 @@
     },
     "entries": {
       "main": {
-        "model": "openai/gpt-5-mini",
+        "model": "openai/gpt-5.6-luna",
         "workspace": "/app/.openclaw/workspace"
       },
       "main-light": {
-        "model": "openai/gpt-5-mini",
+        "model": "openai/gpt-5.6-luna",
         "workspace": "/app/.openclaw/workspace"
       },
       "main-med": {

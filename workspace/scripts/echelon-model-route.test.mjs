@@ -10,7 +10,8 @@ test('defaults ordinary agent work to the lightweight model', () => {
   });
 });
 
-test('routes explicit lightweight work to Mini', () => {
+test('routes explicit lightweight work to Luna', () => {
+  assert.equal(pickRoutedAgent('@model:gpt-5.6-luna rewrite this').agentId, 'main-light');
   assert.equal(pickRoutedAgent('@model:gpt-5-mini rewrite this').agentId, 'main-light');
   assert.equal(pickRoutedAgent('Anything', { model_tier: 'lightweight' }).agentId, 'main-light');
   assert.equal(pickRoutedAgent('Proofread this paragraph').agentId, 'main-light');
