@@ -7,6 +7,7 @@ WORKER="$ROOT_DIR/workspace/scripts/echelon-agent-worker.mjs"
 
 jq -e '
   .agents.defaults.heartbeat.every == "0m" and
+  .agents.defaults.thinkingDefault == "low" and
   .agents.defaults.contextInjection == "continuation-skip" and
   .agents.defaults.bootstrapMaxChars == 6000 and
   .agents.defaults.bootstrapTotalMaxChars == 12000 and

@@ -1,5 +1,7 @@
 const LIGHTWEIGHT_TIERS = new Set(['cheap', 'light', 'lightweight', 'mini']);
 
+import { isWorkbookAttachment } from './echelon-workbook-attachment.mjs';
+
 function normalizedMetadataValue(metadata, ...keys) {
   for (const key of keys) {
     const value = String(metadata?.[key] || '').trim().toLowerCase();
@@ -25,13 +27,18 @@ export function pickRoutedAgent(requestText, metadata = {}) {
     return { agentId: 'main-light', reason: `metadata:${declaredTier}` };
   }
 
+  const attachments = Array.isArray(metadata?.attachments) ? metadata.attachments : [];
+  if (attachments.some(isWorkbookAttachment)) {
+    return { agentId: 'main', reason: 'attachment:workbook' };
+  }
+
   const text = raw.toLowerCase();
   const isCritical = /\b(threat model|security review|sec review|vulnerability|exploit|authz|authorization|privilege|rbac|secrets?|credential|injection|xss|ssrf|rce|critical|incident)\b/.test(
     text,
   );
   if (isCritical) return { agentId: 'main-critical', reason: 'heuristic:security/critical' };
 
-  const isCode = /\b(code|refactor|implement|bug|fix|typescript|javascript|python|sql|dockerfile|pr review|pull request|diff|lint|tests?)\b/.test(
+  const isCode = /\b(code|refactor|implement|bug|fix|typescript|javascript|python|sql|dockerfile|pr review|pull request|diff|lint|unit tests?|integration tests?|test suite|test file|test code)\b/.test(
     text,
   );
   if (isCode) return { agentId: 'main-med', reason: 'heuristic:code' };

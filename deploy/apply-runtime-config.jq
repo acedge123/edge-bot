@@ -2,6 +2,7 @@ del(.agent)
 | .agents.ownership = "explicit"
 | .agents.defaults.model.primary = "openai/gpt-5.6-luna"
 | .agents.defaults.model.fallbacks = ["openai/gpt-5.6-sol"]
+| .agents.defaults.thinkingDefault = "low"
 | .agents.defaults.workspace = "/app/.openclaw/workspace"
 | .agents.defaults.heartbeat = {"every":"0m","agentId":"main"}
 | .agents.defaults.contextInjection = "continuation-skip"

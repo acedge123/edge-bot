@@ -26,3 +26,14 @@ test('routes code and explicit Sol work to Sol-backed agents', () => {
   assert.equal(pickRoutedAgent('Fix this TypeScript test').agentId, 'main-med');
   assert.equal(pickRoutedAgent('@model:gpt-5.6-sol answer this').agentId, 'main-critical');
 });
+
+test('keeps workbook analysis on the lightweight route', () => {
+  assert.deepEqual(
+    pickRoutedAgent('Compare Personal Monthly Bills with 2026 Test', {
+      attachments: [{ filename: '2026 Test.xlsx' }],
+    }),
+    { agentId: 'main', reason: 'attachment:workbook' },
+  );
+  assert.equal(pickRoutedAgent('Review the 2026 Test workbook').agentId, 'main');
+  assert.equal(pickRoutedAgent('Fix this TypeScript unit test').agentId, 'main-med');
+});

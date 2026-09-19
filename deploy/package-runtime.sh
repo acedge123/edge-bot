@@ -56,6 +56,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.workspace = "/app/.openclaw/workspace" |
     .agents.defaults.model.primary = "openai/gpt-5.6-luna" |
     .agents.defaults.model.fallbacks = ["openai/gpt-5.6-sol"] |
+    .agents.defaults.thinkingDefault = "low" |
     .agents.defaults.heartbeat.every = "0m" |
     .agents.defaults.heartbeat.agentId = "main" |
     .agents.defaults.bootstrapMaxChars = 7000 |
@@ -77,6 +78,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
   ' "$DEST/openclaw.json" > "$DEST/openclaw.json.tmp" && mv "$DEST/openclaw.json.tmp" "$DEST/openclaw.json"
   jq -e '
     .agents.defaults.heartbeat.every == "0m" and
+    .agents.defaults.thinkingDefault == "low" and
     .agents.defaults.bootstrapMaxChars == 7000 and
     .memory.search.enabled == false and
     .memory.search.provider == "none" and

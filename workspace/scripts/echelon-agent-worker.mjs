@@ -19,6 +19,7 @@
  *   ECHELON_PROCESS_APP_SIGNALS_WITH_LLM - Opt-in for model processing of app signals (default false).
  *   ECHELON_CIRCUIT_FAILURE_THRESHOLD - Consecutive provider failures before pausing claims (default 2).
  *   ECHELON_CIRCUIT_OPEN_MS - How long to pause claims after the circuit opens (default 15 minutes).
+ *   ECHELON_AGENT_TIMEOUT_MS - Maximum wait for one agent response (default 3 minutes).
  *
  * SMS jobs use per-sender sessions. Slack jobs use per-thread sessions. Echelon UI jobs use per-actor sessions.
  * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
@@ -96,6 +97,7 @@ function positiveIntegerEnv(name, fallback, minimum) {
 
 const CIRCUIT_FAILURE_THRESHOLD = positiveIntegerEnv('ECHELON_CIRCUIT_FAILURE_THRESHOLD', 2, 1);
 const CIRCUIT_OPEN_MS = positiveIntegerEnv('ECHELON_CIRCUIT_OPEN_MS', 15 * 60 * 1000, 60_000);
+const AGENT_RESPONSE_TIMEOUT_MS = positiveIntegerEnv('ECHELON_AGENT_TIMEOUT_MS', 3 * 60 * 1000, 30_000);
 
 /** Durable idempotency markers (Slack/SMS) — survives restarts when workspace is on a Railway volume. */
 const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery');
@@ -605,7 +607,7 @@ async function augmentMessageWithFileAttachments({ requestText, attachments, job
     : message;
 }
 
-async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, timeoutMs = 15 * 60 * 1000 }) {
+async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, timeoutMs = AGENT_RESPONSE_TIMEOUT_MS }) {
   let baselineLastTs = 0;
   try {
     const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });

@@ -7,6 +7,7 @@
         "primary": "openai/gpt-5.6-luna",
         "fallbacks": ["openai/gpt-5.6-sol"]
       },
+      "thinkingDefault": "low",
       "heartbeat": {
         "every": "0m",
         "agentId": "main"
