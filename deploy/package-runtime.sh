@@ -69,6 +69,7 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .cron.enabled = false |
     .cron.triggers.enabled = false |
     .skills.workshop.autonomous.mode = "off" |
+    .tools.deny = ["computer","sessions_spawn","subagents","automations","skill_workshop","canvas","image_generate","music_generate","video_generate","tts","nodes","node_exec","node_inference","mobile_ui","conversations_*","sessions_list","sessions_history","sessions_search","sessions_send","sessions_yield","agents_list","progress_card"] |
     .skills.allowBundled = [] |
     .skills.limits.maxSkillsInPrompt = 12 |
     .skills.limits.maxSkillsPromptChars = 2200 |
@@ -85,6 +86,8 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.bootstrapMaxChars == 7000 and
     .skills.limits.maxSkillsInPrompt == 12 and
     .skills.limits.maxSkillsPromptChars == 2200 and
+    (.tools.deny | index("computer")) != null and
+    (.tools.deny | index("sessions_spawn")) != null and
     .memory.search.enabled == false and
     .memory.search.provider == "none" and
     .cron.enabled == false and

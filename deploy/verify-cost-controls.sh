@@ -24,6 +24,9 @@ jq -e '
   .skills.limits.maxSkillsPromptChars == 2200 and
   (.agents.entries.main.skills | length) == 12 and
   (.agents.entries["main-med"].skills | length) == 12 and
+  (.tools.deny | index("computer")) != null and
+  (.tools.deny | index("sessions_spawn")) != null and
+  (.tools.deny | index("automations")) != null and
   .memory.search.enabled == false and
   .memory.search.provider == "none" and
   .cron.enabled == false and

@@ -27,6 +27,7 @@ del(.agent)
 | .skills.limits.maxSkillsInPrompt = 12
 | .skills.limits.maxSkillsPromptChars = 2200
 | .skills.workshop.autonomous.mode = "off"
+| .tools.deny = ["computer","sessions_spawn","subagents","automations","skill_workshop","canvas","image_generate","music_generate","video_generate","tts","nodes","node_exec","node_inference","mobile_ui","conversations_*","sessions_list","sessions_history","sessions_search","sessions_send","sessions_yield","agents_list","progress_card"]
 | .plugins.entries["memory-core"].config.dreaming.enabled = false
 | .plugins.entries.brave.enabled = true
 | .plugins.entries.codex.enabled = true
