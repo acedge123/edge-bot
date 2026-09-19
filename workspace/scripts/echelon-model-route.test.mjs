@@ -3,10 +3,10 @@ import test from 'node:test';
 
 import { pickRoutedAgent } from './echelon-model-route.mjs';
 
-test('defaults ordinary agent work to the reliable model', () => {
+test('defaults ordinary agent work to the lightweight model', () => {
   assert.deepEqual(pickRoutedAgent('Help me prepare for tomorrow'), {
     agentId: 'main',
-    reason: 'default:reliable',
+    reason: 'default:lightweight',
   });
 });
 

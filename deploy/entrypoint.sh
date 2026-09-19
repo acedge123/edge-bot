@@ -47,20 +47,51 @@ EOF
 }
 
 # If the workspace path is backed by a volume, it can mask the image's workspace.
-# Seed workspace when missing; always sync scripts/ and skills/ from image so redeploys get latest worker and skills.
+# Seed workspace when missing; sync versioned runtime code and policy without
+# overwriting durable identity or user-authored knowledge.
 if [ ! -f "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" ]; then
   echo "[entrypoint] workspace scripts missing; seeding workspace into mounted volume"
   mkdir -p "${WORKSPACE_DIR}"
   cp -a "${BAKED_WORKSPACE_DIR}/." "${WORKSPACE_DIR}/"
 else
-  echo "[entrypoint] syncing workspace/scripts, workspace/skills, and workspace/docs from image (so worker, skills, and wiki reference docs are current)"
+  echo "[entrypoint] syncing runtime code, skills, docs, and policy files from image"
   mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills" "${WORKSPACE_DIR}/docs"
   cp -a "${BAKED_WORKSPACE_DIR}/scripts/." "${WORKSPACE_DIR}/scripts/"
   cp -a "${BAKED_WORKSPACE_DIR}/skills/." "${WORKSPACE_DIR}/skills/"
   if [ -d "${BAKED_WORKSPACE_DIR}/docs" ]; then
     cp -a "${BAKED_WORKSPACE_DIR}/docs/." "${WORKSPACE_DIR}/docs/"
   fi
+  for policy_file in AGENTS.md CONFIG.md HEARTBEAT.md; do
+    if [ -f "${BAKED_WORKSPACE_DIR}/${policy_file}" ]; then
+      cp "${BAKED_WORKSPACE_DIR}/${policy_file}" "${WORKSPACE_DIR}/${policy_file}"
+    fi
+  done
 fi
+
+# One-time migration: preserve the accumulated memory verbatim, then replace the
+# always-injected root file with a compact index. Detailed facts remain available
+# in the archive and vault, but no longer ride along with every model request.
+MEMORY_COMPACTION_MARKER="${WORKSPACE_DIR}/.memory-context-compacted-v1"
+if [ ! -f "${MEMORY_COMPACTION_MARKER}" ] && [ -f "${BAKED_WORKSPACE_DIR}/MEMORY.compact.md" ]; then
+  mkdir -p "${WORKSPACE_DIR}/vault/archive"
+  if [ -f "${WORKSPACE_DIR}/MEMORY.md" ]; then
+    cp -p "${WORKSPACE_DIR}/MEMORY.md" "${WORKSPACE_DIR}/vault/archive/MEMORY.pre-context-compaction.md"
+    echo "[entrypoint] archived pre-compaction MEMORY.md"
+  fi
+  cp "${BAKED_WORKSPACE_DIR}/MEMORY.compact.md" "${WORKSPACE_DIR}/MEMORY.md"
+  touch "${MEMORY_COMPACTION_MARKER}"
+  echo "[entrypoint] installed compact MEMORY.md index"
+fi
+
+bootstrap_total=0
+for bootstrap_file in AGENTS.md SOUL.md IDENTITY.md USER.md BOOTSTRAP.md MEMORY.md; do
+  if [ -f "${WORKSPACE_DIR}/${bootstrap_file}" ]; then
+    bootstrap_bytes="$(wc -c < "${WORKSPACE_DIR}/${bootstrap_file}" | tr -d ' ')"
+    bootstrap_total=$((bootstrap_total + bootstrap_bytes))
+    echo "[entrypoint] bootstrap candidate ${bootstrap_file}: ${bootstrap_bytes} bytes"
+  fi
+done
+echo "[entrypoint] raw bootstrap candidates: ${bootstrap_total} bytes; configured total cap: 12000 chars"
 
 # Keep mutable OpenClaw state under the Railway-mounted workspace volume. The
 # image remains the source of truth for config, while cron/session SQLite state

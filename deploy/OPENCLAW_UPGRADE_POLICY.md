@@ -7,13 +7,15 @@ OpenClaw upgrades are cost-sensitive production changes. Do not bump the image v
 1. `agents.defaults.heartbeat.every` remains `0m`; no autonomous heartbeat turns.
 2. Cron and cron triggers remain disabled. The Skill Workshop autonomous mode remains `off`; it otherwise schedules hidden multi-turn reviews after normal work.
 3. Remote memory search/indexing remains disabled (`memory.search.enabled=false`, provider `none`). Durable files may still exist on the Railway volume without being embedded on every change.
-4. Workspace bootstrap context remains capped at 7,000 characters, matching the bounded pre-upgrade worker.
+4. Versioned root policy replaces generic starter policy on deploy, root memory remains a compact index, and the complete pre-compaction memory is archived.
 5. Automated app signals are handled deterministically without a model unless `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` is explicitly enabled.
 6. Ordinary text and CSV jobs use `chat.send`. Only real image jobs use `/v1/chat/completions`.
-7. The worker does not build and resend its own transcript. OpenClaw owns session context and compaction.
-8. Provider quota, rate-limit, and timeout failures open the durable circuit breaker before the queue can drain into repeated paid attempts.
-9. Models remain tiered: `gpt-5.6-sol` is the reliable default and `gpt-5-mini` is used only for explicitly lightweight work.
-10. Mutable OpenClaw state, including cron and sessions, remains under the Railway-mounted workspace at `.openclaw-state/`.
+7. The worker does not build and resend its own transcript. Sessions are isolated by transport conversation boundary and reset after 60 idle minutes.
+8. Continuation turns skip repeated bootstrap injection; startup daily-memory injection and automatic pre-compaction memory flush remain disabled.
+9. Narrow installed-skill capability questions bypass the model.
+10. Provider quota, rate-limit, and timeout failures open the durable circuit breaker before the queue can drain into repeated paid attempts.
+11. Models remain tiered: `gpt-5-mini` is the default; `gpt-5.6-sol` is reserved for code, debugging, architecture, security, and explicitly complex work.
+12. Mutable OpenClaw state, including cron and sessions, remains under the Railway-mounted workspace at `.openclaw-state/`.
 
 ## Upgrade procedure
 

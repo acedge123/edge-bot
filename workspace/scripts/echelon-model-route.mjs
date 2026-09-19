@@ -8,10 +8,7 @@ function normalizedMetadataValue(metadata, ...keys) {
   return '';
 }
 
-/**
- * Default to the reliable agent. Mini is opt-in through explicit metadata,
- * a model tag, or a deliberately narrow low-risk text transformation.
- */
+/** Default ordinary work to Mini and escalate explicitly complex work to Sol. */
 export function pickRoutedAgent(requestText, metadata = {}) {
   const raw = String(requestText || '');
   const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
@@ -49,5 +46,5 @@ export function pickRoutedAgent(requestText, metadata = {}) {
     return { agentId: 'main-light', reason: 'heuristic:lightweight-transformation' };
   }
 
-  return { agentId: 'main', reason: 'default:reliable' };
+  return { agentId: 'main', reason: 'default:lightweight' };
 }

@@ -29,6 +29,10 @@ SOUL.md
 TOOLS.md
 USER.md
 
+# Hosted policy and compact-memory template are versioned deployment inputs.
+!workspace/AGENTS.md
+!workspace/MEMORY.compact.md
+
 # Local editor/tooling state
 .clawhub/
 .cursor/

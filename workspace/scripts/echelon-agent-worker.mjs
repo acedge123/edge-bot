@@ -20,8 +20,7 @@
  *   ECHELON_CIRCUIT_FAILURE_THRESHOLD - Consecutive provider failures before pausing claims (default 2).
  *   ECHELON_CIRCUIT_OPEN_MS - How long to pause claims after the circuit opens (default 15 minutes).
  *
- * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
- * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
+ * SMS jobs use per-sender sessions. Slack jobs use per-thread sessions. Echelon UI jobs use per-actor sessions.
  * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
  *
  * Image attachments: Jobs with real image URLs use POST /v1/chat/completions for vision.
@@ -37,6 +36,8 @@ import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pickRoutedAgent } from './echelon-model-route.mjs';
+import { answerCapabilityQuery } from './echelon-capability-query.mjs';
+import { buildEchelonSessionKey } from './echelon-session-key.mjs';
 import {
   buildDeterministicAppSignalResponse,
   isApprovalRequiredSignalJob,
@@ -736,35 +737,39 @@ async function handleJob(job) {
   }
   metadata = metadata || {};
 
-  // Detect job source and use appropriate session keys
+  // Detect job source before deterministic handling and model routing.
   const source = String(metadata.source || '').trim();
-  const isSmsJob = source === 'sms';
-  const isSlackJob = source === 'slack';
 
   if (shouldBypassAppSignalModel(metadata, PROCESS_APP_SIGNALS_WITH_LLM)) {
     console.log('[echelon-worker] job', jobId, 'app_signal bypassed model processing');
     return buildDeterministicAppSignalResponse({ message, metadata });
   }
 
+  const capabilityResponse = answerCapabilityQuery(message, (skill) =>
+    existsSync(join(WORKSPACE_ROOT, 'skills', skill, 'SKILL.md')),
+  );
+  if (capabilityResponse) {
+    console.log('[echelon-worker] job', jobId, 'capability query bypassed model processing');
+    return capabilityResponse;
+  }
+
   const routed = pickRoutedAgent(message, metadata);
   const agentId = routed.agentId;
 
-  let sessionKey;
-  if (isSmsJob) {
-    const fromNumber = String(metadata.from_number || '').trim();
-    if (!fromNumber) {
-      throw new Error('SMS job missing metadata.from_number');
-    }
-    sessionKey = `agent:${agentId}:sms:${tenantId}:${fromNumber}`;
-  } else if (isSlackJob) {
-    const slackUser = String(metadata.slack_user || '').trim();
-    if (!slackUser) {
-      throw new Error('Slack job missing metadata.slack_user');
-    }
-    sessionKey = `agent:${agentId}:slack:${tenantId}:${slackUser}`;
-  } else {
-    sessionKey = `agent:${agentId}:echelon:${tenantId}`;
+  if (source === 'sms' && !String(metadata.from_number || '').trim()) {
+    throw new Error('SMS job missing metadata.from_number');
   }
+  if (source === 'slack' && !String(metadata.slack_user || '').trim()) {
+    throw new Error('Slack job missing metadata.slack_user');
+  }
+  const sessionKey = buildEchelonSessionKey({
+    agentId,
+    tenantId,
+    actorId: job.actor_id || job.actorId,
+    source,
+    metadata,
+    jobId,
+  });
 
   console.log(
     '[echelon-worker] model route decision:',
