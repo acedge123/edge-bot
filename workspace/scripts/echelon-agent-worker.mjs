@@ -11,7 +11,6 @@
  *   ECHELON_POLL_MS    - Poll interval when idle (default 2000)
  *   WORKER_ID          - worker_id sent to agent-next (default railway-echelon-worker)
  *   CIA_URL            - Repo C base URL for SMS sending (e.g. https://<project>.supabase.co)
- *   CIA_ANON_KEY       - Repo C anonymous API key
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
@@ -39,6 +38,12 @@ import { promisify } from 'util';
 import { pickRoutedAgent } from './echelon-model-route.mjs';
 import { answerCapabilityQuery } from './echelon-capability-query.mjs';
 import { buildEchelonSessionKey } from './echelon-session-key.mjs';
+import {
+  latestAssistantTimestamp,
+  waitForFinalAssistantReply,
+} from './echelon-reply-capture.mjs';
+import { deliverSlackReply } from './echelon-slack-delivery.mjs';
+import { buildRepoCLaneAHeaders } from './repo-c-lane-a.mjs';
 import {
   downloadWorkbookAttachment,
   isWorkbookAttachment,
@@ -216,7 +221,6 @@ async function writeDeliveryMarker(kind, jobId, extraFields) {
 
 // Repo C env vars for SMS sending
 const CIA_URL = (process.env.CIA_URL || '').replace(/\/+$/, '');
-const CIA_ANON_KEY = (process.env.CIA_ANON_KEY || '').trim();
 const EXECUTOR_SECRET = (process.env.EXECUTOR_SECRET || '').trim();
 
 if (!AGENT_EDGE_KEY) {
@@ -234,7 +238,6 @@ if (checkOnly) {
   console.log('  SIGNAL_APPROVAL_SLACK_CHANNEL:', SIGNAL_APPROVAL_SLACK_CHANNEL || '(missing)');
   console.log('  App signal model processing:', PROCESS_APP_SIGNALS_WITH_LLM ? 'enabled' : 'disabled (deterministic)');
   console.log('  CIA_URL:', CIA_URL || '(missing)');
-  console.log('  CIA_ANON_KEY:', CIA_ANON_KEY ? '***set***' : '(missing)');
   console.log('  EXECUTOR_SECRET:', EXECUTOR_SECRET ? '***set***' : '(missing)');
   (async () => {
     try {
@@ -612,7 +615,7 @@ async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, ti
   try {
     const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
     const messages = baseline?.messages || [];
-    baselineLastTs = [...messages].reverse().find((item) => item.role === 'assistant')?.timestamp || 0;
+    baselineLastTs = latestAssistantTimestamp(messages);
   } catch (_) {
     // New sessions have no history yet.
   }
@@ -629,24 +632,14 @@ async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, ti
     { timeoutMs: 70_000 },
   );
 
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const history = await gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 });
-    const messages = history?.messages || [];
-    const reply = [...messages]
-      .reverse()
-      .find(
-        (item) =>
-          item.role === 'assistant' &&
-          (item.timestamp || 0) > baselineLastTs &&
-          Array.isArray(item.content),
-      );
-    const text = reply?.content?.map((item) => item?.text).filter(Boolean).join('')?.trim() || '';
-    if (text) return text;
-    await new Promise((resolve) => setTimeout(resolve, 750));
-  }
-
-  throw new Error('Timeout waiting for agent response');
+  return waitForFinalAssistantReply({
+    baselineTimestamp: baselineLastTs,
+    timeoutMs,
+    readHistory: () =>
+      gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 }),
+    onProgress: () =>
+      console.log('[echelon-worker] observed assistant progress; waiting for final reply'),
+  });
 }
 
 /** OpenClaw gateway call (chat.send, chat.history). */
@@ -684,18 +677,13 @@ async function postWake(text) {
 
 /** Send SMS reply via Repo C internal-execute endpoint. */
 async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
-  if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
-    throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+  if (!CIA_URL || !EXECUTOR_SECRET) {
+    throw new Error('SMS job requires CIA_URL and EXECUTOR_SECRET env vars');
   }
 
   const res = await fetch(`${CIA_URL}/functions/v1/internal-execute`, {
     method: 'POST',
-    headers: {
-      'apikey': CIA_ANON_KEY,
-      'Authorization': `Bearer ${EXECUTOR_SECRET}`,
-      'X-Tenant-Id': tenantId,
-      'Content-Type': 'application/json',
-    },
+    headers: buildRepoCLaneAHeaders({ executorSecret: EXECUTOR_SECRET, tenantId }),
     body: JSON.stringify({
       service: 'twilio',
       action: 'messages.send',
@@ -717,10 +705,6 @@ async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
 async function sendSlackReply({ job, responseText, slackChannel, slackThreadTs = '' }) {
   const channel = String(slackChannel || '').trim();
   const threadTs = String(slackThreadTs || '').trim();
-  if (!channel) {
-    throw new Error('Slack delivery requires a non-empty channel');
-  }
-
   console.log(
     '[echelon-worker] job',
     job.id,
@@ -729,45 +713,31 @@ async function sendSlackReply({ job, responseText, slackChannel, slackThreadTs =
     threadTs || '(none)',
   );
 
-  const slackMarker = readDeliveryMarker('slack', job.id);
-  const markerChannel = slackMarker?.slack_channel != null ? String(slackMarker.slack_channel) : '';
-  const markerThread = slackMarker?.slack_thread_ts != null ? String(slackMarker.slack_thread_ts) : '';
-  const sameThread =
-    slackMarker?.v === 1 &&
-    slackMarker.kind === 'slack' &&
-    markerChannel === channel &&
-    markerThread === threadTs;
-
-  if (sameThread) {
-    console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
-    return;
-  }
-
   const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
-  const replyRes = await fetch(slackReplyUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+  const result = await deliverSlackReply({
+    jobId: job.id,
+    responseText,
+    slackChannel: channel,
+    slackThreadTs: threadTs,
+    readMarker: () => readDeliveryMarker('slack', job.id),
+    writeMarker: (fields) => writeDeliveryMarker('slack', job.id, fields),
+    postReply: async (payload) => {
+      const replyRes = await fetch(slackReplyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      return { ok: replyRes.ok, status: replyRes.status, body: await replyRes.text() };
     },
-    body: JSON.stringify({
-      job_id: job.id,
-      text: responseText,
-      slack_channel: channel,
-      slack_thread_ts: threadTs || undefined,
-    }),
   });
-  const replyBody = await replyRes.text();
-  if (!replyRes.ok) {
-    console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
-    throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
+  if (result.status === 'duplicate') {
+    console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
+  } else {
+    console.log('[echelon-worker] job', job.id, '-> Slack reply sent (status %s)', result.responseStatus);
   }
-
-  await writeDeliveryMarker('slack', job.id, {
-    slack_channel: channel,
-    slack_thread_ts: threadTs,
-  });
-  console.log('[echelon-worker] job', job.id, '-> Slack reply sent (status %s)', replyRes.status);
 }
 
 /**
@@ -926,8 +896,8 @@ async function runLoop() {
             throw new Error('SMS job missing metadata.from_number');
           }
 
-          if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
-            throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+          if (!CIA_URL || !EXECUTOR_SECRET) {
+            throw new Error('SMS job requires CIA_URL and EXECUTOR_SECRET env vars');
           }
 
           const smsMarker = readDeliveryMarker('sms', job.id);

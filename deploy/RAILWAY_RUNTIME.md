@@ -10,10 +10,10 @@
 
 | Field | Value |
 |--------|--------|
-| **Last verified** | `YYYY-MM-DD` ← set when you confirm below in the Railway dashboard |
-| **Railway project** | *(dashboard project name, optional)* |
-| **Service name** | *(e.g. edge-bot gateway service)* |
-| **Environment** | `production` / `preview` / other |
+| **Last verified** | `2026-09-22` for project, service, environment, and attached volume; mount path still requires dashboard confirmation |
+| **Railway project** | `balanced-wisdom` |
+| **Service name** | `edge-bot` |
+| **Environment** | `production` |
 | **Persistent volume** | Yes — attached to this service |
 | **Volume mount path** | `/app/.openclaw/workspace` *(expected by `deploy/entrypoint.sh` for durable workspace files and OpenClaw runtime state under `.openclaw-state/`; **confirm** under Service → Volumes)* |
 | **Volume label (Railway UI)** | *(optional; helps humans find the volume)* |

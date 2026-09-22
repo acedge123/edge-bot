@@ -8,7 +8,6 @@ SMS reply functionality has been implemented in `echelon-agent-worker.mjs` to ha
 Three new environment variables are required for SMS functionality:
 
 - **`CIA_URL`** - Repo C base URL (e.g., `https://<project>.supabase.co`)
-- **`CIA_ANON_KEY`** - Repo C anonymous API key for authentication
 - **`EXECUTOR_SECRET`** - Bearer token for the `internal-execute` endpoint
 
 These are optional - the worker will only fail SMS jobs if these are missing, non-SMS jobs continue to work without them.
@@ -39,7 +38,7 @@ If `from_number` is missing, the job will fail with a clear error message.
 ## Defensive Behavior
 
 - **Missing `from_number`**: Job fails immediately in `handleJob()` with error: `"SMS job missing metadata.from_number"`
-- **Missing env vars**: Job fails in `runLoop()` with error: `"SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars"`
+- **Missing env vars**: Job fails in `runLoop()` with error: `"SMS job requires CIA_URL and EXECUTOR_SECRET env vars"`
 - **Repo C API failure**: Job is acked as `failed` with the API error message
 - **Non-SMS jobs**: Unchanged behavior - no impact on existing functionality
 
@@ -53,7 +52,7 @@ If `from_number` is missing, the job will fail with a clear error message.
 - `sendSmsViaRepoC()` - Helper function for Repo C API calls
 
 ### New Constants
-- `CIA_URL`, `CIA_ANON_KEY`, `EXECUTOR_SECRET` - Environment variables
+- `CIA_URL`, `EXECUTOR_SECRET` - Environment variables
 
 ### Updated Documentation
 - Header comment updated with new env vars

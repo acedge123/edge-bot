@@ -1,3 +1,9 @@
+---
+name: ciq-manage-api
+description: Operate the CreatorIQ Manage API through its Supabase Edge Function, including action discovery, tenant-scoped reads, dry runs, and guarded writes.
+metadata: {"openclaw":{"requires":{"env":["platform_key"]}}}
+---
+
 # CIQ Manage API (CreatorIQ) — OpenClaw Reference Skill
 
 A reference for the **CIQ Manage API** exposed as a Supabase Edge Function.

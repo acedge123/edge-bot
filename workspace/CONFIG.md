@@ -1,6 +1,6 @@
 # Supabase Edge Function Access
 
-**Your workspace is this repo.** For procedures and reference (Composio, Gmail, worker, agent-vault, wiki-engine, troubleshooting), see the **docs/** folder at repo root and **`workspace/docs/`** on the hosted image: AGENT_VAULT.md, AGENT_LEARNINGS_SCHEMA.md, RELATIONAL_MEMORY_MODEL.md, AGENT_MEMORY_POLICY.md, WIKI_SYSTEM_OVERVIEW.md, WIKI_USAGE_GUIDE.md (under `workspace/docs/` when deployed), JOBS_AND_WAKE_REFERENCE.md, NEW_EMAIL_TO_OPENCLAW.md, SECURE_OPENCLAW_COMPOSIO.md, WORKER_DAEMON.md, EDGE_BOT_COMMAND_EXECUTION_TROUBLESHOOTING.md. **Env var names, trust boundaries, and canonical-vs-sync rules:** `workspace/docs/AGENT_CONTROL_PLANE_KEY_REGISTRY.md` (synced copy; canonical lives in **overall-architecture**). Read the relevant doc when the user asks for something that is documented there.
+**Your workspace is this repo.** For procedures and reference (Google Workspace, worker, agent-vault, wiki-engine, troubleshooting), see the **docs/** folder at repo root and **`workspace/docs/`** on the hosted image. **Env var names, trust boundaries, and canonical-vs-sync rules:** `workspace/docs/AGENT_CONTROL_PLANE_KEY_REGISTRY.md` (synced copy; canonical lives in **overall-architecture**). Read the relevant doc when the user asks for something that is documented there.
 
 **Hosted cost controls:** Read `workspace/docs/OPENCLAW_COST_GUARDRAILS.md` before proposing or making any OpenClaw upgrade, heartbeat, memory indexing, session routing, model routing, cron, or queue-worker change. Never enable recurring heartbeats, remote memory embeddings, or worker-owned transcript replay on hosted edge-bot.
 
@@ -14,14 +14,14 @@
 
 ## Email and calendar – where to look (critical)
 
-- **Email:** Use only the **secure-gmail** skill in **this workspace**: `workspace/skills/secure-gmail/`. Read `workspace/skills/secure-gmail/SKILL.md` and use that skill (Composio/Gmail API). Do **not** use `gcalcli`. Do **not** read or use `/opt/homebrew/lib/node_modules/openclaw/skills/gmail/` or any path under that – your skills are in the **workspace** (this repo), not in the bundled OpenClaw install.
-- **Skills location:** All your skills are under the workspace: `workspace/skills/<skill-name>/`. When a tool says "no such file" for a path like `.../openclaw/skills/gmail/`, you are looking in the wrong place; use `workspace/skills/secure-gmail/` instead. If the agent reports *no workspace-local skills*, the OpenClaw workspace dir (e.g. `/root/.openclaw/workspace`) may be missing the `skills/` tree — see **docs/WORKSPACE_LOCAL_SKILLS.md** for how to copy or symlink this repo’s `workspace/skills/` into that directory.
+- **Email, Drive, Calendar, Docs, and Sheets:** Use the **gmail-sa** skill in **this workspace**: `workspace/skills/gmail-sa/`. It authenticates as the Google Workspace service user through `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY`, and `GOOGLE_IMPERSONATED_USER`. Never use the retired Composio integration.
+- **Skills location:** All your skills are under the workspace: `workspace/skills/<skill-name>/`. Do not use skill paths from the bundled OpenClaw installation when a workspace skill exists.
 - **Agent Vault learnings:** To save/retrieve durable learnings in Agent Vault, use `workspace/skills/agent-learnings/SKILL.md` (skill name: `agent-learnings`). Use this for meaningful reusable memory, not transient chat text. For schema, relational tables, and storage rules, read `docs/AGENT_LEARNINGS_SCHEMA.md`, `docs/RELATIONAL_MEMORY_MODEL.md`, and `docs/AGENT_MEMORY_POLICY.md`. When a turn implies **entities, relationships, or commitments** as well as prose, use **composite** `POST /learnings` (`create_entities`, `entity_links`, `create_relationships`, `create_commitments`) per that policy—not keyword-only side channels.
 - **Wiki engine (compiled knowledge):** For wiki sources, pages, compile, reindex, lint, and `/answer`, use **`workspace/skills/wiki-engine/SKILL.md`** (skill name: `wiki-engine`). Full reference: on the container, **`workspace/docs/WIKI_SYSTEM_OVERVIEW.md`** and **`workspace/docs/WIKI_USAGE_GUIDE.md`** (synced from repo `docs/` at build time). Same bearer token as agent-vault.
 - **Governance Hub runtime:** For heartbeat, authorize, audit-ingest, policy-propose, or tenant rules (e.g. onsite-affiliate, mom-walk-connect), use the **governance-runtime** skill: `workspace/skills/governance-runtime/`. The skill is named **governance-runtime** (not "access governance"); it lives in `workspace/skills/governance-runtime/SKILL.md`.
 - **Google Places + sponsors:** To search venues or enrich a **local sponsors list**, use **`google-places`** (`workspace/skills/google-places/SKILL.md`) with env **`GOOGLE_MAPS_API_KEY`**, and **`sponsors-database`** (`workspace/skills/sponsors-database/SKILL.md`) for the JSON workflow under `workspace/data/sponsors/`.
 - **Mom Walk admin actions:** Use **`mom-walk-manage`** (`workspace/skills/mom-walk-manage/SKILL.md`) for reviewed Mom Walk `/manage` operations. Never recreate its token-minting flow with shell or `curl`; add future actions to the tool's validated registry.
-- **Do not run the jobs worker.** The script `workspace/scripts/jobs-worker.mjs` is a **daemon** the user runs separately. You never run it to "get email" or "pull jobs". To get email, use the **secure-gmail** skill only.
+- **Do not run the jobs worker.** The script `workspace/scripts/jobs-worker.mjs` is a **daemon** the user runs separately. You never run it to "get email" or "pull jobs". To get email, use the **gmail-sa** skill only.
 
 ---
 
@@ -39,20 +39,13 @@ When the conversation is from **Slack** (Echelon Slack channel), your reply is d
 - Use the Supabase Edge Function proxy for secure access.
 - Proxy URL: `$SUPABASE_EDGE_SECRETS_URL`
 - Authentication: `Authorization: Bearer $SUPABASE_EDGE_SECRETS_AUTH`
-### Accessing Composio to Use Gmail
-1. Authenticate using the provided token.
-2. Utilize the defined API endpoints as needed.
-3. If you call Composio via **curl**, use **docs/COMPOSIO_CURL_EXAMPLES.md**: send proper JSON in `-d '{"arguments":{...}}'` (quoted), use `curl -sSf` so errors don’t write empty/HTML to files, and avoid unquoted `[INBOX]` (zsh glob).
-
----
-
 ## When you receive a wake (POST /hooks/wake)
 
 **Canonical:** See **docs/JOBS_AND_WAKE_REFERENCE.md**.
 
 The **worker** claims jobs and POSTs the job message to the Gateway at `/hooks/wake`. You do **not** call jobs/next or jobs/ack — the worker does that.
 
-When you are woken with a message (e.g. "New email from inbox_messages id=123" or "New Composio trigger …"):
+When you are woken with a message (for example, a queued operational event):
 
 1. Use the **message text** as context.
 2. Process it: read learnings, summarize for the user, or run the right skills.

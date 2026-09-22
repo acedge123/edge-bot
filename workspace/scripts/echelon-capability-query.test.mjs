@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { answerCapabilityQuery } from './echelon-capability-query.mjs';
 
-const installed = new Set(['secure-gmail', 'repo-map']);
+const installed = new Set(['gmail-sa', 'repo-map']);
 const hasSkill = (skill) => installed.has(skill);
 
 test('answers Gmail capability questions without a model', () => {
   assert.equal(
     answerCapabilityQuery('Do you still have the Gmail skill?', hasSkill),
-    'Yes. The `secure-gmail` skill is installed in this EdgeBot runtime.',
+    'Yes. The `gmail-sa` skill is installed in this EdgeBot runtime.',
   );
   assert.equal(
     answerCapabilityQuery('Can you access email?', hasSkill),
-    'Yes. The `secure-gmail` skill is installed in this EdgeBot runtime.',
+    'Yes. The `gmail-sa` skill is installed in this EdgeBot runtime.',
   );
 });
 

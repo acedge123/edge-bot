@@ -91,7 +91,7 @@ for bootstrap_file in AGENTS.md SOUL.md IDENTITY.md USER.md BOOTSTRAP.md MEMORY.
     echo "[entrypoint] bootstrap candidate ${bootstrap_file}: ${bootstrap_bytes} bytes"
   fi
 done
-echo "[entrypoint] raw bootstrap candidates: ${bootstrap_total} bytes; configured total cap: 12000 chars"
+echo "[entrypoint] raw bootstrap candidates: ${bootstrap_total} bytes; configured total cap: 150000 chars"
 
 # Keep mutable OpenClaw state under the Railway-mounted workspace volume. The
 # image remains the source of truth for config, while cron/session SQLite state

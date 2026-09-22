@@ -12,11 +12,11 @@
         "every": "0m",
         "agentId": "main"
       },
-      "contextInjection": "continuation-skip",
-      "bootstrapMaxChars": 6000,
-      "bootstrapTotalMaxChars": 12000,
+      "contextInjection": "always",
+      "bootstrapMaxChars": 20000,
+      "bootstrapTotalMaxChars": 150000,
       "startupContext": {
-        "enabled": false
+        "enabled": true
       },
       "contextLimits": {
         "memoryGetMaxChars": 6000,
@@ -50,29 +50,25 @@
     "entries": {
       "main": {
         "model": "openai/gpt-5.6-luna",
-        "workspace": "/app/.openclaw/workspace",
-        "skills": ["secure-gmail", "github", "brave-search", "Agent Browser", "mom-walk-manage", "youtrack-via-repo-c", "small-business-finance-tax", "sponsors-database", "slack", "supabase", "wiki-engine", "google-places"]
+        "workspace": "/app/.openclaw/workspace"
       },
       "main-light": {
         "model": "openai/gpt-5.6-luna",
-        "workspace": "/app/.openclaw/workspace",
-        "skills": ["secure-gmail", "github", "brave-search", "Agent Browser", "mom-walk-manage", "youtrack-via-repo-c", "small-business-finance-tax", "sponsors-database", "slack", "supabase", "wiki-engine", "google-places"]
+        "workspace": "/app/.openclaw/workspace"
       },
       "main-med": {
         "model": "openai/gpt-5.6-sol",
-        "workspace": "/app/.openclaw/workspace",
-        "skills": ["github", "repo-map", "pr-code-review-qa", "cursor-agent", "supabase", "youtrack-via-repo-c", "mom-walk-manage", "Agent Browser", "brave-search", "aws-roles-anywhere", "governance-runtime", "secure-gmail"]
+        "workspace": "/app/.openclaw/workspace"
       },
       "main-critical": {
         "model": "openai/gpt-5.6-sol",
-        "workspace": "/app/.openclaw/workspace",
-        "skills": ["github", "repo-map", "pr-code-review-qa", "cursor-agent", "supabase", "youtrack-via-repo-c", "mom-walk-manage", "Agent Browser", "brave-search", "aws-roles-anywhere", "governance-runtime", "secure-gmail"]
+        "workspace": "/app/.openclaw/workspace"
       }
     }
   },
   "memory": {
     "search": {
-      "enabled": false,
+      "enabled": true,
       "provider": "none",
       "rememberAcrossConversations": false,
       "sources": ["memory"]
@@ -86,14 +82,15 @@
   },
   "skills": {
     "allowBundled": [],
-    "limits": {
-      "maxSkillsInPrompt": 12,
-      "maxSkillsPromptChars": 2200
-    },
     "workshop": {
       "autonomous": {
         "mode": "off"
       }
+    }
+  },
+  "discovery": {
+    "mdns": {
+      "mode": "off"
     }
   },
   "session": {
@@ -114,6 +111,7 @@
         "enabled": true
       },
       "memory-core": {
+        "enabled": true,
         "config": {
           "dreaming": {
             "enabled": false

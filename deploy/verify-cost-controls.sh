@@ -8,10 +8,10 @@ WORKER="$ROOT_DIR/workspace/scripts/echelon-agent-worker.mjs"
 jq -e '
   .agents.defaults.heartbeat.every == "0m" and
   .agents.defaults.thinkingDefault == "low" and
-  .agents.defaults.contextInjection == "continuation-skip" and
-  .agents.defaults.bootstrapMaxChars == 6000 and
-  .agents.defaults.bootstrapTotalMaxChars == 12000 and
-  .agents.defaults.startupContext.enabled == false and
+  .agents.defaults.contextInjection == "always" and
+  .agents.defaults.bootstrapMaxChars == 20000 and
+  .agents.defaults.bootstrapTotalMaxChars == 150000 and
+  .agents.defaults.startupContext.enabled == true and
   .agents.defaults.contextPruning.mode == "cache-ttl" and
   .agents.defaults.compaction.keepRecentTokens == 8000 and
   .agents.defaults.compaction.recentTurnsPreserve == 2 and
@@ -20,18 +20,19 @@ jq -e '
   .session.reset.mode == "idle" and
   .session.reset.idleMinutes == 60 and
   .skills.allowBundled == [] and
-  .skills.limits.maxSkillsInPrompt == 12 and
-  .skills.limits.maxSkillsPromptChars == 2200 and
-  (.agents.entries.main.skills | length) == 12 and
-  (.agents.entries["main-med"].skills | length) == 12 and
+  (.skills | has("limits") | not) and
+  (.agents.entries.main | has("skills") | not) and
+  (.agents.entries["main-med"] | has("skills") | not) and
   (.tools.deny | index("computer")) != null and
   (.tools.deny | index("sessions_spawn")) != null and
   (.tools.deny | index("automations")) != null and
-  .memory.search.enabled == false and
+  .memory.search.enabled == true and
   .memory.search.provider == "none" and
   .cron.enabled == false and
   .cron.triggers.enabled == false and
   .skills.workshop.autonomous.mode == "off" and
+  .discovery.mdns.mode == "off" and
+  .plugins.entries["memory-core"].enabled == true and
   .plugins.entries["memory-core"].config.dreaming.enabled == false and
   .agents.defaults.model.primary == "openai/gpt-5.6-luna" and
   .agents.entries.main.model == "openai/gpt-5.6-luna" and
@@ -55,6 +56,9 @@ node --test "$ROOT_DIR/workspace/scripts/echelon-app-signal-policy.test.mjs" >/d
 node --test "$ROOT_DIR/workspace/scripts/echelon-session-key.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-capability-query.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-workbook-attachment.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/echelon-reply-capture.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/echelon-slack-delivery.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/repo-c-lane-a.test.mjs" >/dev/null
 
 if grep -q 'plugins list' "$ROOT_DIR/deploy/entrypoint.sh"; then
   echo "Entrypoint must not dump the full plugin inventory during startup." >&2
