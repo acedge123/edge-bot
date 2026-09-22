@@ -10,9 +10,9 @@ Target: Railway project `balanced-wisdom`, service `edge-bot`, environment `prod
 The recovery branch is pushed and deployed to production with explicit user
 approval. Final Railway deployment `c4a0e212-ba2b-485e-b290-29247cee2bb6`
 built and started successfully from commit `87d62cf`. A private model canary
-passed on the preceding equivalent runtime; the next ordinary user Slack
-request remains the channel-level canary so recovery work does not inject an
-unsolicited message into Slack.
+passed on that exact image; the next ordinary user Slack request remains the
+channel-level canary so recovery work does not inject an unsolicited message
+into Slack.
 
 ## Exact Source Delta
 
@@ -70,6 +70,10 @@ unsolicited message into Slack.
   discovery reports zero `secure-gmail` entries and all five critical recovery
   skills eligible. The worker authenticated and returned `204` for an empty
   queue, and the public endpoint returned the expected authenticated `403`.
+- Exact-image private canary run `86d82067-ad5f-485b-adc5-4a81ee8c6b99`
+  completed on `gpt-5.6-luna` with a final answer in about 5.9s. Its prompt
+  inventory includes `gmail-sa` and `Guild Leadscore` and excludes
+  `secure-gmail`.
 
 ## Rollback
 
