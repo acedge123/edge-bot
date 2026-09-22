@@ -8,10 +8,11 @@ Target: Railway project `balanced-wisdom`, service `edge-bot`, environment `prod
 ## Status
 
 The recovery branch is pushed and deployed to production with explicit user
-approval. Railway deployment `8f6705f5-52d7-4552-870b-a8bfef9da6db` built and
-started successfully. A private model canary passed; the next ordinary user
-Slack request remains the channel-level canary so recovery work does not inject
-an unsolicited message into Slack.
+approval. Final Railway deployment `c4a0e212-ba2b-485e-b290-29247cee2bb6`
+built and started successfully from commit `87d62cf`. A private model canary
+passed on the preceding equivalent runtime; the next ordinary user Slack
+request remains the channel-level canary so recovery work does not inject an
+unsolicited message into Slack.
 
 ## Exact Source Delta
 
@@ -62,14 +63,22 @@ an unsolicited message into Slack.
   plugins, disabled heartbeat, gateway readiness, and authenticated worker poll.
 - Private production canary run `e36b96e0-991a-4574-81a5-b56ddfba0115`
   completed on `gpt-5.6-luna` with a substantive final answer in about 4.9s.
+- Final cleanup deployment `c4a0e212-ba2b-485e-b290-29247cee2bb6` produced
+  image digest
+  `sha256:29355c63b081f0f3f10d0d16009c6562ae1f6ef6b207785e246a761fdd5a4d84`.
+  Startup logged the exact retirement of `secure-gmail/Composio`; live skill
+  discovery reports zero `secure-gmail` entries and all five critical recovery
+  skills eligible. The worker authenticated and returned `204` for an empty
+  queue, and the public endpoint returned the expected authenticated `403`.
 
 ## Rollback
 
-The previous Railway deployment is `aba2e1ec-75ca-4755-922a-f08da8e63afa`
-with image digest
+The immediate image rollback is successful recovery deployment
+`8f6705f5-52d7-4552-870b-a8bfef9da6db`. The pre-recovery Railway rollback is
+`aba2e1ec-75ca-4755-922a-f08da8e63afa`, with image digest
 `sha256:b5c9a3fcc03e0aed8136d98125aa5762cdc04ae73aeb0106ca19b06bba6ed4b9`.
 The source rollback point is base commit `26381e0`. If the channel canary fails,
-immediately restore that deployment and, if state was modified, the encrypted
+restore the appropriate deployment and, if state was modified, the encrypted
 pre-cutover volume backup. Do not delete the recovery artifacts
 under `/Users/rastakit/tga-workspace/recovery/edge-bot/2026-09-21/`.
 
