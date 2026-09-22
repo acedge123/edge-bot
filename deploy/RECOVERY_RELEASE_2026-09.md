@@ -50,9 +50,10 @@ a demonstrably executable rollback.
 - Secret scan found no credential files or detected literal secrets in the
   staged source.
 - Docker image build was not run because Docker, Podman, Colima, and Buildah are
-  unavailable on this machine. The Dockerfile's build-time jq and OpenClaw
-  validation therefore remain a cutover-gate check in an environment with a
-  container engine.
+  unavailable on this machine. Railway build `0105bf0d-27d7-438e-b21a-15714ba810a7`
+  exposed and confirmed a CLI archive issue: the broad `openclaw.json` ignore
+  rule omitted the tracked runtime template. A narrow template exception is now
+  part of the branch; a successful replacement build remains required.
 
 ## Rollback
 

@@ -2,6 +2,9 @@
 .env
 .env.*
 openclaw.json
+# This reviewed template is a Docker build input and must survive Railway CLI
+# source uploads, which apply this ignore file even to tracked paths.
+!deploy/runtime-template/openclaw.json
 *.pem
 *credentials*
 *secret*
