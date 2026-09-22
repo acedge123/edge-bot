@@ -9,10 +9,9 @@ Target: Railway project `balanced-wisdom`, service `edge-bot`, environment `prod
 
 The recovery branch is pushed and deployed to production with explicit user
 approval. Final Railway deployment `c4a0e212-ba2b-485e-b290-29247cee2bb6`
-built and started successfully from commit `87d62cf`. A private model canary
-passed on that exact image; the next ordinary user Slack request remains the
-channel-level canary so recovery work does not inject an unsolicited message
-into Slack.
+built and started successfully from commit `87d62cf`. Private and user-initiated
+channel canaries passed: Edge Bot responds in Slack and the buyechelon.com
+message channel and retains prior-conversation context.
 
 ## Exact Source Delta
 
@@ -88,9 +87,6 @@ under `/Users/rastakit/tga-workspace/recovery/edge-bot/2026-09-21/`.
 
 ## Remaining Gates
 
-1. Confirm the next ordinary Slack request completes with a substantive final
-   answer in the originating thread.
-2. Monitor runtime and worker logs after that request for retries, duplicate
-   delivery, provider failure, or queue churn.
-3. Complete the independent review and close the recovery tickets after the
-   channel canary remains stable.
+1. Complete the independent closeout review.
+2. Resolve the recovery tickets after the review confirms the recorded build,
+   channel canaries, monitoring, and rollback evidence.
