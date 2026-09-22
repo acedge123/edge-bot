@@ -7,16 +7,19 @@ Target: Railway project `balanced-wisdom`, service `edge-bot`, environment `prod
 
 ## Status
 
-The source repair is complete and ready for independent review. It has not been
-pushed or deployed. Production cutover remains governed by TGA-294 and requires
-a fresh backup, explicit approval, one controlled Slack canary, monitoring, and
-a demonstrably executable rollback.
+The recovery branch is pushed and deployed to production with explicit user
+approval. Railway deployment `8f6705f5-52d7-4552-870b-a8bfef9da6db` built and
+started successfully. A private model canary passed; the next ordinary user
+Slack request remains the channel-level canary so recovery work does not inject
+an unsolicited message into Slack.
 
 ## Exact Source Delta
 
 - Restore recovered workspace-local skills while preserving newer repo versions
   where both copies existed. Retire the obsolete `secure-gmail`/Composio path in
-  favor of the `gmail-sa` service-account integration.
+  favor of the `gmail-sa` service-account integration. Startup removes only that
+  explicitly retired directory from the durable volume; it does not broadly
+  prune preserved skills or user-authored state.
 - Remove per-agent skill allowlists and prompt-count caps that hid recovered
   capabilities after the OpenClaw upgrade.
 - Restore bootstrap policy on every turn with reviewed `20000` per-file and
@@ -49,23 +52,32 @@ a demonstrably executable rollback.
   Guild lead-score tenants, and TGA Analytics passed.
 - Secret scan found no credential files or detected literal secrets in the
   staged source.
-- Docker image build was not run because Docker, Podman, Colima, and Buildah are
-  unavailable on this machine. Railway build `0105bf0d-27d7-438e-b21a-15714ba810a7`
-  exposed and confirmed a CLI archive issue: the broad `openclaw.json` ignore
-  rule omitted the tracked runtime template. A narrow template exception is now
-  part of the branch; a successful replacement build remains required.
+- Railway build `0105bf0d-27d7-438e-b21a-15714ba810a7` failed safely before
+  deployment because the CLI archive omitted the tracked runtime template. The
+  narrow ignore exception fixed that issue.
+- Replacement deployment `8f6705f5-52d7-4552-870b-a8bfef9da6db` passed the
+  Dockerfile's jq invariants and OpenClaw validation and produced image digest
+  `sha256:2ad3801267f153368097da48184f910e3b32e068421811890b84f38cb5a271a7`.
+- Runtime startup confirmed the persistent volume, required Codex and Brave
+  plugins, disabled heartbeat, gateway readiness, and authenticated worker poll.
+- Private production canary run `e36b96e0-991a-4574-81a5-b56ddfba0115`
+  completed on `gpt-5.6-luna` with a substantive final answer in about 4.9s.
 
 ## Rollback
 
-Before cutover, preserve the currently running Railway deployment and take a
-fresh volume backup. The source rollback point is base commit `26381e0`. If the
-canary fails, immediately restore the previous deployment and, if state was
-modified, the pre-cutover volume backup. Do not delete the recovery artifacts
+The previous Railway deployment is `aba2e1ec-75ca-4755-922a-f08da8e63afa`
+with image digest
+`sha256:b5c9a3fcc03e0aed8136d98125aa5762cdc04ae73aeb0106ca19b06bba6ed4b9`.
+The source rollback point is base commit `26381e0`. If the channel canary fails,
+immediately restore that deployment and, if state was modified, the encrypted
+pre-cutover volume backup. Do not delete the recovery artifacts
 under `/Users/rastakit/tga-workspace/recovery/edge-bot/2026-09-21/`.
 
 ## Remaining Gates
 
-1. Independent review of the staged source and acceptance evidence.
-2. Container image build with the Dockerfile's embedded config checks.
-3. TGA-294 approval and fresh production backup.
-4. Controlled Slack canary in the originating thread, followed by monitoring.
+1. Confirm the next ordinary Slack request completes with a substantive final
+   answer in the originating thread.
+2. Monitor runtime and worker logs after that request for retries, duplicate
+   delivery, provider failure, or queue churn.
+3. Complete the independent review and close the recovery tickets after the
+   channel canary remains stable.
