@@ -51,7 +51,7 @@ railway link   # or create new project
 railway up
 ```
 
-Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc. GitHub currently uses scoped TGA credentials and has a documented wrapper gap; see **`TGA_OPENCLAW_WRAPPERS.md`** and **`docs/GITHUB_ACCESS_FOR_AGENT.md`** before changing credential names.
+Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc. GitHub uses the protected owner-aware wrapper: `EDGE_BOT_PERSONAL` for `acedge123/*` and `EDGE_BOT_TOKEN` for `The-Gig-Agency/*`. See **`TGA_OPENCLAW_WRAPPERS.md`** and **`docs/GITHUB_ACCESS_FOR_AGENT.md`** before changing credential names.
 
 **Note:** A redeploy replaces the container; runtime-written files (memory, cloned repos) are lost unless you use a Railway volume or external store (e.g. Agent Vault). See **deploy/RAILWAY_SKILLS_AND_LEARNINGS.md**.
 

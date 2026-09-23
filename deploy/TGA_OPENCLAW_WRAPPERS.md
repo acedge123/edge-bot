@@ -37,6 +37,7 @@ TGA owns the surrounding behavior needed for reliable production operation:
 | Capability checks | Answer narrow installed-skill questions from the actual workspace filesystem. | Avoid a paid model guess about skill availability. | `echelon-capability-query.mjs` |
 | Provider circuit breaker | Pause queue claims after repeated quota, rate-limit, or timeout failures; persist breaker state on the volume. | Avoid draining a queue into repeated provider failures. | `echelon-agent-worker.mjs` |
 | Google Workspace | Use the `edge@thegig.agency` service user through domain-wide delegation and `gmail-sa`; never use retired Composio or a personal OAuth connection. | OpenClaw-native Gmail/Drive connection flow. | `workspace/skills/gmail-sa/`, `workspace/CONFIG.md` |
+| GitHub owner routing | Route `acedge123/*` through `EDGE_BOT_PERSONAL` and `The-Gig-Agency/*` through `EDGE_BOT_TOKEN`; authenticate with the repo-owned helper and HTTPS askpass. | OpenClaw account identity, bundled `gh` instructions, and a global token are not authoritative. | `workspace/skills/github/`, `workspace/scripts/github-via-owner.mjs`, `workspace/docs/GITHUB_ACCESS_FOR_AGENT.md` |
 | YouTrack | Hosted agents call Repo C `/internal-execute` with Lane A bearer auth and tenant context. | No direct hosted `YOUTRACK_TOKEN` calls and no consumer `X-API-Key`. | `workspace/skills/youtrack-via-repo-c/`, `workspace/scripts/youtrack-via-repo-c.mjs` |
 | Durable memory | Use Agent Vault for intentional durable learnings and relational memory; keep ordinary chat from writing memory automatically. | No autonomous memory writes, dreaming, or remote embedding traffic. | `workspace/skills/agent-learnings/`, `workspace/AGENTS.md`, runtime config |
 | Media buying and analytics | Use pacing, Guild, and TGA Analytics endpoints with the reviewed env names and auth headers. | Do not substitute generic ad-platform connectors. | `workspace/skills/media-buyer/`, Guild skills |
@@ -54,23 +55,25 @@ TGA owns the surrounding behavior needed for reliable production operation:
 | Google Workspace | `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_IMPERSONATED_USER` | `gmail-sa` service-account helper |
 | Agent Vault | `AGENT_VAULT_URL`, `AGENT_EDGE_KEY` | `agent-learnings` and approved Vault-aware skills |
 | TGA Analytics | `AGENT_MEDIA_ANALYTICS_KEY` | Bearer auth to `agent-analytics` |
-| GitHub | `EDGE_BOT_PERSONAL`, `TGA_GH_TOKEN`, purpose-specific tokens such as `GITHUB_SDR_TOKEN` | TGA token wrapper, once repaired; do not use OpenClaw account identity as proof of repository access |
+| GitHub | `EDGE_BOT_PERSONAL`, `EDGE_BOT_TOKEN`; legacy org fallback `TGA_GH_TOKEN`; purpose-specific tokens such as `GITHUB_SDR_TOKEN` only when explicitly selected | Owner-aware `github-via-owner.mjs`; do not use OpenClaw account identity as proof of repository access |
 | Governance Hub | `ACP_BASE_URL`, `ACP_KERNEL_ID`, `ACP_KERNEL_KEY` | `governance-runtime` auth lanes |
 | Mom Walk manage | `MOM_WALK_AGENT_MINT_SECRET` | Root-owned `mom-walk-manage` only |
 
-## Known gap: GitHub override
+## GitHub override
 
-The Railway service contains the TGA GitHub credentials, but the current
-workspace `github` skill tells the agent to use `gh`; the image does not install
-`gh`, and OpenClaw's native `github_identity_status` checks a different account
-connection system. This can incorrectly report that GitHub access is not
-configured even when a TGA token is available.
+The GitHub wrapper was customized before the 2026-09 OpenClaw upgrade, but its
+workspace skill was later replaced by the bundled generic `gh` instructions.
+Recovered June and August records confirm the intended routing: personal
+`acedge123` repositories use `EDGE_BOT_PERSONAL`, while `The-Gig-Agency`
+repositories use `EDGE_BOT_TOKEN`.
 
-Until the wrapper is repaired, treat native GitHub identity output as
-non-authoritative. The repair should provide a constrained helper that selects
-the approved token by repository/purpose, tests access without printing the
-credential, and supports only reviewed read/write operations. Do not alias all
-GitHub credentials into one global token without defining repository scope.
+The restored wrapper makes that routing executable in
+`github-via-owner.mjs`, keeps credentials out of URLs and command output with
+HTTPS askpass, and checks repository access through the GitHub API. The
+workspace skill explicitly overrides OpenClaw's native
+`github_identity_status`, which checks a different account-connection system.
+The deploy verifier protects the skill, helper, documentation, and tests from
+being silently replaced again.
 
 ## Switching back to native OpenClaw behavior
 

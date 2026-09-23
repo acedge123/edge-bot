@@ -1,47 +1,72 @@
 ---
 name: github
-description: "Interact with GitHub using the `gh` CLI. Use `gh issue`, `gh pr`, `gh run`, and `gh api` for issues, PRs, CI runs, and advanced queries."
+description: "Use TGA's repository-owner-aware GitHub helper for authenticated repository checks and git operations."
 ---
 
-# GitHub Skill
+# GitHub
 
-Use the `gh` CLI to interact with GitHub. Always specify `--repo owner/repo` when not in a git directory, or use URLs directly.
+This workspace skill overrides OpenClaw's bundled GitHub integration. TGA
+GitHub access is provided by scoped Railway environment variables, not by an
+OpenClaw account connection.
 
-## Pull Requests
+## Required helper
 
-Check CI status on a PR:
-```bash
-gh pr checks 55 --repo owner/repo
-```
-
-List recent workflow runs:
-```bash
-gh run list --repo owner/repo --limit 10
-```
-
-View a run and see which steps failed:
-```bash
-gh run view <run-id> --repo owner/repo
-```
-
-View logs for failed steps only:
-```bash
-gh run view <run-id> --repo owner/repo --log-failed
-```
-
-## API for Advanced Queries
-
-The `gh api` command is useful for accessing data not available through other subcommands.
-
-Get PR with specific fields:
-```bash
-gh api repos/owner/repo/pulls/55 --jq '.title, .state, .user.login'
-```
-
-## JSON Output
-
-Most commands support `--json` for structured output.  You can use `--jq` to filter:
+Use:
 
 ```bash
-gh issue list --repo owner/repo --json number,title --jq '.[] | "\(.number): \(.title)"'
+node /app/.openclaw/workspace/scripts/github-via-owner.mjs <command> <owner/repo> [arguments]
 ```
+
+Run `help` for the supported commands. Do not recreate authentication with a
+token-bearing URL, `gh auth login`, or an OpenClaw native GitHub tool.
+
+## Credential routing
+
+The repository owner determines the credential:
+
+| Repository owner | Credential |
+|---|---|
+| `acedge123` | `EDGE_BOT_PERSONAL` |
+| `The-Gig-Agency` | `EDGE_BOT_TOKEN` |
+
+`TGA_GH_TOKEN` is a legacy fallback only when `EDGE_BOT_TOKEN` is absent.
+Other owners require an explicitly approved `--token-env NAME`; never guess or
+silently use one of the two credentials above.
+
+## Operating rules
+
+1. For a request to check access, run `check`; do not inspect OpenClaw account
+   connections first.
+2. Treat `github_identity_status` and Settings -> Agents -> Tools as
+   non-authoritative for these env-backed credentials.
+3. Use the helper for `clone`, `fetch`, `pull`, and `push`. It authenticates
+   through HTTPS askpass without placing a token in the URL or command line.
+4. Never print token values, authenticated URLs, request headers, or child
+   process environments.
+5. Do not push, comment, merge, or otherwise mutate GitHub unless the user
+   requested that action.
+6. If access fails, report the repository, selected environment-variable name,
+   HTTP/git status, and likely scope or identity issue. Never report a token as
+   globally missing based on a different execution surface.
+7. Prefer GitHub's REST API for issue, PR, review, and comment operations when
+   a reviewed helper supports the exact operation. `gh` is not installed in
+   the hosted image and is not the authentication source of truth.
+
+## Examples
+
+```bash
+# Personal repository: selects EDGE_BOT_PERSONAL
+node /app/.openclaw/workspace/scripts/github-via-owner.mjs check \
+  acedge123/portfolio-progress-pilot
+
+# TGA repository: selects EDGE_BOT_TOKEN
+node /app/.openclaw/workspace/scripts/github-via-owner.mjs clone \
+  The-Gig-Agency/the-mom-walk-flutter /app/.openclaw/workspace/repos/the-mom-walk-flutter
+
+# Existing checkout
+node /app/.openclaw/workspace/scripts/github-via-owner.mjs fetch \
+  The-Gig-Agency/the-mom-walk-flutter /app/.openclaw/workspace/repos/the-mom-walk-flutter
+```
+
+Read `/app/.openclaw/workspace/docs/GITHUB_ACCESS_FOR_AGENT.md` for the full
+contract and troubleshooting guidance.

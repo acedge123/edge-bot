@@ -5,10 +5,19 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="$ROOT_DIR/deploy/runtime-template/openclaw.json"
 WORKER="$ROOT_DIR/workspace/scripts/echelon-agent-worker.mjs"
 WRAPPER_CONTRACT="$ROOT_DIR/deploy/TGA_OPENCLAW_WRAPPERS.md"
+GITHUB_HELPER="$ROOT_DIR/workspace/scripts/github-via-owner.mjs"
+GITHUB_SKILL="$ROOT_DIR/workspace/skills/github/SKILL.md"
+GITHUB_DOC="$ROOT_DIR/workspace/docs/GITHUB_ACCESS_FOR_AGENT.md"
 
 test -s "$WRAPPER_CONTRACT"
-grep -q 'Known gap: GitHub override' "$WRAPPER_CONTRACT"
+grep -q 'GitHub override' "$WRAPPER_CONTRACT"
 grep -q 'Required acceptance tests' "$WRAPPER_CONTRACT"
+test -x "$ROOT_DIR/workspace/scripts/github-askpass.sh"
+grep -q "candidates = \['EDGE_BOT_PERSONAL'\]" "$GITHUB_HELPER"
+grep -q "candidates = \['EDGE_BOT_TOKEN', 'TGA_GH_TOKEN'\]" "$GITHUB_HELPER"
+grep -q 'github_identity_status' "$GITHUB_SKILL"
+grep -q 'acedge123.*EDGE_BOT_PERSONAL' "$GITHUB_DOC"
+grep -q 'The-Gig-Agency.*EDGE_BOT_TOKEN' "$GITHUB_DOC"
 
 jq -e '
   .agents.defaults.heartbeat.every == "0m" and
@@ -52,7 +61,8 @@ if grep -q "gatewayCall('chat.send'" "$WORKER" || grep -q "gatewayCall('chat.his
   exit 1
 fi
 grep -q 'maxMessages: 12' "$WORKER"
-grep -q 'jobNeedsCompletionsPath' "$WORKER"
+grep -q 'readSessionLog' "$WORKER"
+grep -q 'appendSessionLog' "$WORKER"
 grep -q 'provider circuit is open; not claiming jobs' "$WORKER"
 grep -q 'app_signal bypassed model processing' "$WORKER"
 grep -q 'capability query bypassed model processing' "$WORKER"
@@ -69,14 +79,15 @@ node --test "$ROOT_DIR/workspace/scripts/echelon-workbook-attachment.test.mjs" >
 node --test "$ROOT_DIR/workspace/scripts/echelon-reply-capture.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-slack-delivery.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/repo-c-lane-a.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/github-via-owner.test.mjs" >/dev/null
 
 if grep -q 'plugins list' "$ROOT_DIR/deploy/entrypoint.sh"; then
   echo "Entrypoint must not dump the full plugin inventory during startup." >&2
   exit 1
 fi
 
-if grep -qE 'routedChatCompletion|session-history' "$WORKER"; then
-  echo "Worker must not maintain and resend a parallel conversation transcript." >&2
+if grep -q 'routedChatCompletion' "$WORKER"; then
+  echo "Worker must use the canonical synchronous completion path." >&2
   exit 1
 fi
 
