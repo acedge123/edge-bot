@@ -7,8 +7,8 @@ These are production invariants for edge-bot on Railway. They were restored afte
 3. Hosted file-memory search stays enabled with provider `none` and `rememberAcrossConversations = false`. This preserves keyword retrieval from durable memory without remote embedding traffic.
 4. The versioned hosted `AGENTS.md` replaces generic starter policy on each deploy. Root `MEMORY.md` stays a compact index; its pre-compaction contents remain archived on the volume.
 5. Automated app signals use deterministic handling and no LLM unless `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` is explicitly enabled.
-6. Ordinary text and CSV jobs use `chat.send`, allowing OpenClaw to own compact session context. Only real image jobs use `/v1/chat/completions`.
-7. The queue worker never assembles and resends a parallel transcript. Sessions are isolated by SMS sender, Slack thread, app signal, or Echelon actor/conversation and reset after 60 idle minutes.
+6. All model-backed Echelon jobs use synchronous `/v1/chat/completions`. Do not use `chat.send` plus `chat.history` polling: OpenClaw 2026.8 strips response-phase metadata from history and can cause progress commentary to be acknowledged as the final channel response.
+7. The queue worker preserves at most 12 recent system/user/assistant messages in a volume-backed transcript. Sessions are isolated by SMS sender, Slack thread, app signal, or Echelon actor/conversation. Never introduce unbounded transcript replay.
 8. Bootstrap context is injected on every turn with the reviewed `20000` per-file and `150000` total caps so identity and operating policy remain available. Pre-compaction memory flush stays disabled and old tool output is pruned.
 9. Installed-skill capability checks are deterministic and bypass the model.
 10. Provider quota, rate-limit, and timeout failures open the persistent circuit breaker before more jobs are claimed.

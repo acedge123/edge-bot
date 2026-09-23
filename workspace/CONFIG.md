@@ -2,7 +2,7 @@
 
 **Your workspace is this repo.** For procedures and reference (Google Workspace, worker, agent-vault, wiki-engine, troubleshooting), see the **docs/** folder at repo root and **`workspace/docs/`** on the hosted image. **Env var names, trust boundaries, and canonical-vs-sync rules:** `workspace/docs/AGENT_CONTROL_PLANE_KEY_REGISTRY.md` (synced copy; canonical lives in **overall-architecture**). Read the relevant doc when the user asks for something that is documented there.
 
-**Hosted cost controls:** Read `workspace/docs/OPENCLAW_COST_GUARDRAILS.md` before proposing or making any OpenClaw upgrade, heartbeat, memory indexing, session routing, model routing, cron, or queue-worker change. Never enable recurring heartbeats, remote memory embeddings, or worker-owned transcript replay on hosted edge-bot.
+**Hosted cost controls:** Read `workspace/docs/OPENCLAW_COST_GUARDRAILS.md` before proposing or making any OpenClaw upgrade, heartbeat, memory indexing, session routing, model routing, cron, or queue-worker change. Never enable recurring heartbeats, remote memory embeddings, unbounded transcript replay, or `chat.send`/`chat.history` completion inference on hosted edge-bot.
 
 **Memory writes are opt-in:** Do not update daily memory, `MEMORY.md`, or Agent Vault after ordinary chat. Write only when the user explicitly asks to remember something or when a durable operational fact materially changes, and never duplicate the same fact in both daily and long-term memory.
 

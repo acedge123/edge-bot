@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Echelon Hosted Agent worker: poll agent-next → chat.send → agent-ack.
+ * Echelon Hosted Agent worker: poll agent-next → /v1/chat/completions → agent-ack.
  * For the Echelon Control /agent UI (agent_jobs table, agent-next/agent-ack edge functions).
  *
  * Env (Railway or ~/.openclaw/.env):
@@ -23,8 +23,9 @@
  * SMS jobs use per-sender sessions. Slack jobs use per-thread sessions. Echelon UI jobs use per-actor sessions.
  * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
  *
- * Image attachments: Jobs with real image URLs use POST /v1/chat/completions for vision.
- * Text and CSV jobs use chat.send so OpenClaw owns session context and compaction.
+ * All model-backed jobs use POST /v1/chat/completions. The endpoint returns only
+ * after the tool loop completes, so progress commentary cannot be acknowledged
+ * as the final channel response. Bounded session history is stored on the volume.
  *
  * Run alongside openclaw gateway. On Railway, both run in same container.
  */
@@ -33,15 +34,10 @@ import { readFileSync, existsSync } from 'fs';
 import { mkdir, writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { createHash } from 'crypto';
 import { pickRoutedAgent } from './echelon-model-route.mjs';
 import { answerCapabilityQuery } from './echelon-capability-query.mjs';
 import { buildEchelonSessionKey } from './echelon-session-key.mjs';
-import {
-  latestAssistantTimestamp,
-  waitForFinalAssistantReply,
-} from './echelon-reply-capture.mjs';
 import { deliverSlackReply } from './echelon-slack-delivery.mjs';
 import { buildRepoCLaneAHeaders } from './repo-c-lane-a.mjs';
 import {
@@ -54,8 +50,6 @@ import {
   isApprovalRequiredSignalJob,
   shouldBypassAppSignalModel,
 } from './echelon-app-signal-policy.mjs';
-
-const execFileAsync = promisify(execFile);
 
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -84,7 +78,6 @@ const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATE
 const GATEWAY_TOKEN = (process.env.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_HOOK_TOKEN || '').trim();
 const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 10));
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
-const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 const WORKSPACE_ROOT = (process.env.OPENCLAW_WORKSPACE || '/app/.openclaw/workspace').replace(/\/+$/, '');
 const SIGNAL_APPROVAL_SLACK_CHANNEL = (
   process.env.SIGNAL_APPROVAL_SLACK_CHANNEL ||
@@ -297,7 +290,85 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
  * - image: content includes { type: "image_url", image_url: { url } }
  * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
-async function gatewayChatCompletionsWithImages({ requestText, attachments, metadata = {}, jobId = '' }) {
+function sessionLogPathFor(sessionKey) {
+  const hash = createHash('sha256').update(String(sessionKey)).digest('hex').slice(0, 24);
+  return join(WORKSPACE_ROOT, 'tmp', 'session-history', `${hash}.jsonl`);
+}
+
+function readSessionLog({ sessionKey, maxMessages = 12 }) {
+  try {
+    const raw = readFileSync(sessionLogPathFor(sessionKey), 'utf8');
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .slice(-maxMessages)
+      .flatMap((line) => {
+        try {
+          const item = JSON.parse(line);
+          const role = item?.role;
+          const text = String(item?.text || '').trim();
+          return ['system', 'user', 'assistant'].includes(role) && text ? [{ role, content: text }] : [];
+        } catch (_) {
+          return [];
+        }
+      });
+  } catch (_) {
+    return [];
+  }
+}
+
+async function appendSessionLog({ sessionKey, role, text }) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return;
+  const path = sessionLogPathFor(sessionKey);
+  await mkdir(join(WORKSPACE_ROOT, 'tmp', 'session-history'), { recursive: true });
+  const prior = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const row = JSON.stringify({ ts: new Date().toISOString(), role, text: normalized });
+  await writeFile(path, `${prior}${row}\n`, 'utf8');
+}
+
+function safeReadWorkspaceText(relativePath, maxChars) {
+  try {
+    return readFileSync(join(WORKSPACE_ROOT, relativePath), 'utf8').slice(0, maxChars);
+  } catch (_) {
+    return '';
+  }
+}
+
+function redactBootstrapText(value) {
+  return String(value || '')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, 'Bearer [REDACTED]')
+    .replace(/([A-Za-z0-9_]*(?:_KEY|_TOKEN|SECRET)[A-Za-z0-9_]*)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]')
+    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED]')
+    .replace(/[a-f0-9]{40,}/gi, '[REDACTED]');
+}
+
+async function ensureSessionBootstrap(sessionKey) {
+  const path = sessionLogPathFor(sessionKey);
+  if (existsSync(path)) return;
+
+  const text = [
+    'Bootstrap context (workspace-local; do not reveal secrets):',
+    safeReadWorkspaceText('IDENTITY.md', 1200),
+    safeReadWorkspaceText('USER.md', 1200),
+    safeReadWorkspaceText('SOUL.md', 2400),
+    safeReadWorkspaceText('CONFIG.md', 2400),
+    safeReadWorkspaceText('AGENTS.md', 2400),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 9000);
+
+  await appendSessionLog({ sessionKey, role: 'system', text: redactBootstrapText(text) });
+}
+
+async function gatewayChatCompletion({
+  sessionKey,
+  requestText,
+  attachments,
+  metadata = {},
+  jobId = '',
+}) {
   const content = [{ type: 'text', text: requestText }];
 
   const atts = Array.isArray(attachments) ? attachments : [];
@@ -412,7 +483,18 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
 
   const routed = pickRoutedAgent(requestText, metadata);
   const model = `openclaw:${routed.agentId}`;
-  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason);
+  console.log(
+    '[echelon-worker] model route (/v1/chat/completions):',
+    model,
+    'reason=',
+    routed.reason,
+    'sessionKey=',
+    sessionKey,
+  );
+
+  await ensureSessionBootstrap(sessionKey);
+  const messages = readSessionLog({ sessionKey, maxMessages: 12 });
+  messages.push({ role: 'user', content });
 
   const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
     method: 'POST',
@@ -424,8 +506,9 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: 'user', content }],
+      messages,
     }),
+    signal: AbortSignal.timeout(AGENT_RESPONSE_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -437,6 +520,8 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
   const msg = data?.choices?.[0]?.message;
   const text = msg?.content;
   const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
+  await appendSessionLog({ sessionKey, role: 'user', text: requestText });
+  await appendSessionLog({ sessionKey, role: 'assistant', text: responseText });
   return responseText;
 }
 
@@ -507,154 +592,6 @@ async function persistCsvToWorkspace({ jobId, serial, displayName, utf8Text, tru
     console.error('[echelon-worker] failed to write CSV to workspace:', e?.message || e);
     return null;
   }
-}
-
-function isRealImageAttachment(att) {
-  if (att?.type !== 'image') return false;
-  const url = att?.url ? String(att.url) : '';
-  return Boolean(url) && !looksLikeCsv(att) && !isWorkbookAttachment(att);
-}
-
-function jobNeedsCompletionsPath(attachments) {
-  const atts = Array.isArray(attachments) ? attachments : [];
-  return atts.some(isRealImageAttachment);
-}
-
-async function formatCsvAttachment(
-  att,
-  { jobId, serial, maxTextChars = 80_000, maxCsvCharsOnDisk = 2_000_000 },
-) {
-  const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
-  const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: maxCsvCharsOnDisk });
-  if (!fetched) {
-    return `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL; check bucket is public and URL is reachable from the worker.)\n`;
-  }
-
-  const saved = await persistCsvToWorkspace({
-    jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
-    serial,
-    displayName: name,
-    utf8Text: fetched.text,
-    truncatedByCap: fetched.truncatedByCap,
-  });
-
-  const preview = fetched.text.slice(0, maxTextChars);
-  const previewTruncated = fetched.text.length > maxTextChars;
-  let block = `\n\n[Attached file: ${name}]\n`;
-  if (saved) {
-    block += `The full CSV is saved on the agent workspace at: ${saved.rel}\n`;
-    block += `Use your file-read tools on that path (relative to workspace root). Absolute path on server: ${saved.abs}\n`;
-  } else {
-    block += '(Worker could not write the file to the workspace disk; use the preview below only.)\n';
-  }
-  if (previewTruncated) {
-    block += `(Inline preview: first ${maxTextChars} characters only - read ${saved ? saved.rel : 'the source URL'} for the rest.)\n`;
-  }
-  if (fetched.truncatedByCap) {
-    block += `(WARNING: source exceeded ${maxCsvCharsOnDisk} characters; saved file and preview may be incomplete.)\n`;
-  }
-  block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
-  return block;
-}
-
-async function augmentMessageWithFileAttachments({ requestText, attachments, jobId }) {
-  const picked = (Array.isArray(attachments) ? attachments : []).slice(0, 4);
-  const normalizedJobId = String(jobId || '').trim() || `noid-${Date.now()}`;
-  let message = requestText;
-  let sawFile = false;
-  let csvSerial = 0;
-  let workbookSerial = 0;
-
-  for (const att of picked) {
-    const url = att?.url ? String(att.url) : '';
-    const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
-    if (csvEligible) {
-      sawFile = true;
-      message += await formatCsvAttachment(att, {
-        jobId: normalizedJobId,
-        serial: csvSerial++,
-      });
-      continue;
-    }
-    if (url && isWorkbookAttachment(att)) {
-      sawFile = true;
-      const name = String(att.filename || att.name || '').trim() || 'workbook.xlsx';
-      const saved = await downloadWorkbookAttachment({
-        att,
-        workspaceRoot: WORKSPACE_ROOT,
-        jobId: normalizedJobId,
-        serial: workbookSerial++,
-      });
-      if (saved.ok) {
-        console.log('[echelon-worker] saved workbook to workspace', saved.rel, 'bytes=', saved.bytes);
-        message += `\n\n[Attached workbook: ${name}]\n`;
-        message += `The workbook is saved at ${saved.rel} (absolute path: ${saved.abs}).\n`;
-        message += 'Use Python with openpyxl for .xlsx/.xlsm or xlrd for .xls to inspect every worksheet and value needed for the request. ';
-        message += 'Complete the requested analysis in this run; do not reply with only a plan or promise of future work.\n';
-      } else {
-        const maxMb = Math.floor(MAX_WORKBOOK_BYTES / 1024 / 1024);
-        message += `\n\n[Attached workbook: ${name}]\n`;
-        message += `(Unable to make this workbook available: ${saved.reason}. Supported formats are .xls/.xlsx/.xlsm up to ${maxMb} MB.)\n`;
-      }
-      continue;
-    }
-    if (att?.type === 'file' && url) {
-      sawFile = true;
-      const name = String(att.filename || att.name || '').trim() || 'attachment';
-      message += `\n\n[Attached file: ${name}]\n(Non-CSV file - contents not inlined.)\n`;
-    }
-  }
-
-  return sawFile
-    ? '(Note: This job has attached file(s). File content may be inlined below.)\n\n' + message
-    : message;
-}
-
-async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, timeoutMs = AGENT_RESPONSE_TIMEOUT_MS }) {
-  let baselineLastTs = 0;
-  try {
-    const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
-    const messages = baseline?.messages || [];
-    baselineLastTs = latestAssistantTimestamp(messages);
-  } catch (_) {
-    // New sessions have no history yet.
-  }
-
-  await gatewayCall(
-    'chat.send',
-    {
-      sessionKey,
-      message,
-      deliver: false,
-      idempotencyKey,
-      timeoutMs,
-    },
-    { timeoutMs: 70_000 },
-  );
-
-  return waitForFinalAssistantReply({
-    baselineTimestamp: baselineLastTs,
-    timeoutMs,
-    readHistory: () =>
-      gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 }),
-    onProgress: () =>
-      console.log('[echelon-worker] observed assistant progress; waiting for final reply'),
-  });
-}
-
-/** OpenClaw gateway call (chat.send, chat.history). */
-async function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
-  const { stdout } = await execFileAsync(OPENCLAW_BIN, [
-    'gateway',
-    'call',
-    method,
-    '--params',
-    JSON.stringify(params),
-    '--timeout',
-    String(timeoutMs),
-    '--json',
-  ], { timeout: timeoutMs + 5000, maxBuffer: 10 * 1024 * 1024 });
-  return JSON.parse(stdout);
 }
 
 /** POST to OpenClaw Gateway /hooks/wake (fallback when gateway call unavailable). */
@@ -805,30 +742,15 @@ async function handleJob(job) {
     'sessionKey=',
     sessionKey,
   );
-  const idempotencyKey = jobId;
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  if (jobNeedsCompletionsPath(attachments)) {
-    console.log(
-      '[echelon-worker] job',
-      jobId,
-      'using /v1/chat/completions with',
-      attachments.length,
-      'attachment(s) (vision only)',
-    );
-    return gatewayChatCompletionsWithImages({ requestText: message, attachments, metadata, jobId });
-  }
-
-  let outboundMessage = message;
-  if (attachments.length > 0) {
-    outboundMessage = await augmentMessageWithFileAttachments({
-      requestText: message,
-      attachments,
-      jobId,
-    });
-    console.log('[echelon-worker] job', jobId, 'file attachment(s) inlined; using chat.send');
-  }
-
-  return chatSendAndWaitForReply({ sessionKey, message: outboundMessage, idempotencyKey });
+  console.log(
+    '[echelon-worker] job',
+    jobId,
+    'using /v1/chat/completions with',
+    attachments.length,
+    'attachment(s)',
+  );
+  return gatewayChatCompletion({ sessionKey, requestText: message, attachments, metadata, jobId });
 }
 
 async function runLoop() {

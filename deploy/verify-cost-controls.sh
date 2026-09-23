@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="$ROOT_DIR/deploy/runtime-template/openclaw.json"
 WORKER="$ROOT_DIR/workspace/scripts/echelon-agent-worker.mjs"
+WRAPPER_CONTRACT="$ROOT_DIR/deploy/TGA_OPENCLAW_WRAPPERS.md"
+
+test -s "$WRAPPER_CONTRACT"
+grep -q 'Known gap: GitHub override' "$WRAPPER_CONTRACT"
+grep -q 'Required acceptance tests' "$WRAPPER_CONTRACT"
 
 jq -e '
   .agents.defaults.heartbeat.every == "0m" and
@@ -41,7 +46,12 @@ jq -e '
   .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"
 ' "$CONFIG" >/dev/null
 
-grep -q "'chat.send'" "$WORKER"
+grep -q '/v1/chat/completions' "$WORKER"
+if grep -q "gatewayCall('chat.send'" "$WORKER" || grep -q "gatewayCall('chat.history'" "$WORKER"; then
+  echo "Echelon worker must not infer completion by polling chat.send/chat.history" >&2
+  exit 1
+fi
+grep -q 'maxMessages: 12' "$WORKER"
 grep -q 'jobNeedsCompletionsPath' "$WORKER"
 grep -q 'provider circuit is open; not claiming jobs' "$WORKER"
 grep -q 'app_signal bypassed model processing' "$WORKER"
