@@ -21,7 +21,7 @@ cd "$REPO_ROOT"
 echo "Bundling to $BUNDLE (no symlinks, dereferenced)..."
 
 rm -rf "$BUNDLE"
-mkdir -p "$BUNDLE/deploy" "$BUNDLE/workspace"
+mkdir -p "$BUNDLE/deploy" "$BUNDLE/workspace" "$BUNDLE/docs" "$BUNDLE/tools"
 
 # Copy deploy/ - dereference symlinks (-L) so no symlinks in output
 rsync -aL \
@@ -35,6 +35,14 @@ rsync -aL \
   --exclude='node_modules' \
   --exclude='.venv' \
   "$REPO_ROOT/workspace/" "$BUNDLE/workspace/"
+
+# Dockerfile inputs outside deploy/ and workspace/.
+rsync -aL --exclude='.git' "$REPO_ROOT/docs/" "$BUNDLE/docs/"
+rsync -aL --exclude='.git' "$REPO_ROOT/tools/" "$BUNDLE/tools/"
+
+test -f "$BUNDLE/tools/mom-walk-manage.mjs"
+test -f "$BUNDLE/docs/WIKI_SYSTEM_OVERVIEW.md"
+test -f "$BUNDLE/docs/WIKI_USAGE_GUIDE.md"
 
 # Railway expects railway.json and Dockerfile at deploy/
 cp "$REPO_ROOT/deploy/railway.json" "$BUNDLE/"
