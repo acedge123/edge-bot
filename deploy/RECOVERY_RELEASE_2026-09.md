@@ -13,6 +13,12 @@ built and started successfully from commit `87d62cf`. Private and user-initiated
 channel canaries passed: Edge Bot responds in Slack and the buyechelon.com
 message channel and retains prior-conversation context.
 
+Follow-up repair deployment `333d91d4-3efc-44ea-a802-34578e16ee4c`
+restored synchronous `/v1/chat/completions` delivery after a real multi-step
+task proved that OpenClaw 2026.8 `chat.history` flattened commentary/final
+phase metadata. The replacement image digest is
+`sha256:aba0397ef3571eb1ecf50f3fa39a8c2c9233db306fa4a9ad6b4863d523628b2a`.
+
 ## Exact Source Delta
 
 - Restore recovered workspace-local skills while preserving newer repo versions
@@ -73,11 +79,24 @@ message channel and retains prior-conversation context.
   completed on `gpt-5.6-luna` with a final answer in about 5.9s. Its prompt
   inventory includes `gmail-sa` and `Guild Leadscore` and excludes
   `secure-gmail`.
+- Follow-up deployment `333d91d4-3efc-44ea-a802-34578e16ee4c` built and
+  started successfully. Startup confirmed the persistent volume, workspace
+  skill precedence, disabled heartbeat, gateway readiness, and worker startup.
+- A direct production tool-loop canary through `/v1/chat/completions` created
+  `tmp/completion-canary.txt`, read back `completion-canary-ok`, and returned
+  exactly `COMPLETION_CANARY_OK created-and-read` in one completed response.
+- Automated Echelon queue injection could not be used for this follow-up
+  because the configured service-account email/password returned `401` from
+  Supabase Auth. No credentials were changed. The next user-originated
+  buyechelon.com request remains the final queue/channel acceptance check.
+- `deploy/TGA_OPENCLAW_WRAPPERS.md` now records the custom TGA wrapper contract,
+  credential routes, acceptance tests, native-replacement criteria, and the
+  known incomplete GitHub override.
 
 ## Rollback
 
 The immediate image rollback is successful recovery deployment
-`8f6705f5-52d7-4552-870b-a8bfef9da6db`. The pre-recovery Railway rollback is
+`c4a0e212-ba2b-485e-b290-29247cee2bb6`. The pre-recovery Railway rollback is
 `aba2e1ec-75ca-4755-922a-f08da8e63afa`, with image digest
 `sha256:b5c9a3fcc03e0aed8136d98125aa5762cdc04ae73aeb0106ca19b06bba6ed4b9`.
 The source rollback point is base commit `26381e0`. If the channel canary fails,
