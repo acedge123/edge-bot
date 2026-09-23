@@ -50,5 +50,5 @@ cp "$REPO_ROOT/deploy/railway.json" "$BUNDLE/deploy/" 2>/dev/null || true
 
 echo "Bundle size: $(du -sh "$BUNDLE" | cut -f1)"
 echo "Running railway up from clean bundle..."
-cd "$BUNDLE"
-railway up --no-gitignore --verbose
+cd "$REPO_ROOT"
+railway up "$BUNDLE" --path-as-root --no-gitignore --verbose
