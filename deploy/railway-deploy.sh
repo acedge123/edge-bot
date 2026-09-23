@@ -1,8 +1,10 @@
 #!/bin/bash
 # Deploy to Railway from a clean bundle (avoids Cursor socket / symlink issues).
 # Run from OpenClaw_Github root:
-#   ./deploy/package-runtime.sh
 #   ./deploy/railway-deploy.sh
+#
+# The tracked, sanitized runtime-template is sufficient. If a local
+# deploy/runtime package exists, Docker will prefer it as documented.
 
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,8 +12,11 @@ BUNDLE="/tmp/openclaw-railway-bundle"
 
 cd "$REPO_ROOT"
 
-# Ensure runtime is packaged
-[ -d "deploy/runtime" ] || { echo "Run ./deploy/package-runtime.sh first"; exit 1; }
+# Require at least the tracked sanitized runtime source used by CI deployments.
+[ -f "deploy/runtime-template/openclaw.json" ] || {
+  echo "Missing deploy/runtime-template/openclaw.json"
+  exit 1
+}
 
 echo "Bundling to $BUNDLE (no symlinks, dereferenced)..."
 
