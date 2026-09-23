@@ -8,6 +8,8 @@ WRAPPER_CONTRACT="$ROOT_DIR/deploy/TGA_OPENCLAW_WRAPPERS.md"
 GITHUB_HELPER="$ROOT_DIR/workspace/scripts/github-via-owner.mjs"
 GITHUB_SKILL="$ROOT_DIR/workspace/skills/github/SKILL.md"
 GITHUB_DOC="$ROOT_DIR/workspace/docs/GITHUB_ACCESS_FOR_AGENT.md"
+PORTFOLIO_HELPER="$ROOT_DIR/workspace/scripts/portfolio-research-api.mjs"
+PORTFOLIO_SKILL="$ROOT_DIR/workspace/skills/portfolio-research-api/SKILL.md"
 
 test -s "$WRAPPER_CONTRACT"
 grep -q 'GitHub override' "$WRAPPER_CONTRACT"
@@ -18,6 +20,10 @@ grep -q "candidates = \['EDGE_BOT_TOKEN', 'TGA_GH_TOKEN'\]" "$GITHUB_HELPER"
 grep -q 'github_identity_status' "$GITHUB_SKILL"
 grep -q 'acedge123.*EDGE_BOT_PERSONAL' "$GITHUB_DOC"
 grep -q 'The-Gig-Agency.*EDGE_BOT_TOKEN' "$GITHUB_DOC"
+test -x "$PORTFOLIO_HELPER"
+grep -q 'PORTFOLIO_AGENT_API_KEY' "$PORTFOLIO_HELPER"
+grep -q 'x-agent-api-key' "$PORTFOLIO_HELPER"
+grep -q 'Do not stop after saying' "$PORTFOLIO_SKILL"
 
 jq -e '
   .agents.defaults.heartbeat.every == "0m" and
@@ -80,6 +86,7 @@ node --test "$ROOT_DIR/workspace/scripts/echelon-reply-capture.test.mjs" >/dev/n
 node --test "$ROOT_DIR/workspace/scripts/echelon-slack-delivery.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/repo-c-lane-a.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/github-via-owner.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/portfolio-research-api.test.mjs" >/dev/null
 
 if grep -q 'plugins list' "$ROOT_DIR/deploy/entrypoint.sh"; then
   echo "Entrypoint must not dump the full plugin inventory during startup." >&2

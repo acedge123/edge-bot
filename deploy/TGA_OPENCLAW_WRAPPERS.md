@@ -38,6 +38,7 @@ TGA owns the surrounding behavior needed for reliable production operation:
 | Provider circuit breaker | Pause queue claims after repeated quota, rate-limit, or timeout failures; persist breaker state on the volume. | Avoid draining a queue into repeated provider failures. | `echelon-agent-worker.mjs` |
 | Google Workspace | Use the `edge@thegig.agency` service user through domain-wide delegation and `gmail-sa`; never use retired Composio or a personal OAuth connection. | OpenClaw-native Gmail/Drive connection flow. | `workspace/skills/gmail-sa/`, `workspace/CONFIG.md` |
 | GitHub owner routing | Route `acedge123/*` through `EDGE_BOT_PERSONAL` and `The-Gig-Agency/*` through `EDGE_BOT_TOKEN`; authenticate with the repo-owned helper and HTTPS askpass. | OpenClaw account identity, bundled `gh` instructions, and a global token are not authoritative. | `workspace/skills/github/`, `workspace/scripts/github-via-owner.mjs`, `workspace/docs/GITHUB_ACCESS_FOR_AGENT.md` |
+| Portfolio Research Lab | Read and write the Lovable UI's paper portfolio through the versioned `agent-api/v1` endpoint using `x-agent-api-key`; refresh the source repo before reading route instructions. | No browser, Lovable connection, direct Supabase session, PostgREST write, or guessed proxy header. | `workspace/skills/portfolio-research-api/`, `workspace/scripts/portfolio-research-api.mjs`, `workspace/docs/PORTFOLIO_RESEARCH_API.md` |
 | YouTrack | Hosted agents call Repo C `/internal-execute` with Lane A bearer auth and tenant context. | No direct hosted `YOUTRACK_TOKEN` calls and no consumer `X-API-Key`. | `workspace/skills/youtrack-via-repo-c/`, `workspace/scripts/youtrack-via-repo-c.mjs` |
 | Durable memory | Use Agent Vault for intentional durable learnings and relational memory; keep ordinary chat from writing memory automatically. | No autonomous memory writes, dreaming, or remote embedding traffic. | `workspace/skills/agent-learnings/`, `workspace/AGENTS.md`, runtime config |
 | Media buying and analytics | Use pacing, Guild, and TGA Analytics endpoints with the reviewed env names and auth headers. | Do not substitute generic ad-platform connectors. | `workspace/skills/media-buyer/`, Guild skills |
@@ -56,6 +57,7 @@ TGA owns the surrounding behavior needed for reliable production operation:
 | Agent Vault | `AGENT_VAULT_URL`, `AGENT_EDGE_KEY` | `agent-learnings` and approved Vault-aware skills |
 | TGA Analytics | `AGENT_MEDIA_ANALYTICS_KEY` | Bearer auth to `agent-analytics` |
 | GitHub | `EDGE_BOT_PERSONAL`, `EDGE_BOT_TOKEN`; legacy org fallback `TGA_GH_TOKEN`; purpose-specific tokens such as `GITHUB_SDR_TOKEN` only when explicitly selected | Owner-aware `github-via-owner.mjs`; do not use OpenClaw account identity as proof of repository access |
+| Portfolio Research Lab | `AGENT_API_BASE`, `PORTFOLIO_AGENT_API_KEY`; optional `PORTFOLIO_AGENT_READ_KEY` | `portfolio-research-api.mjs` with `x-agent-api-key`; paper trading only |
 | Governance Hub | `ACP_BASE_URL`, `ACP_KERNEL_ID`, `ACP_KERNEL_KEY` | `governance-runtime` auth lanes |
 | Mom Walk manage | `MOM_WALK_AGENT_MINT_SECRET` | Root-owned `mom-walk-manage` only |
 
@@ -104,7 +106,8 @@ Before any OpenClaw upgrade or wrapper replacement:
    actor/thread and verify isolation.
 4. Verify a Slack reply lands once in the correct channel and thread.
 5. Verify Gmail/Drive through `gmail-sa`, YouTrack through Repo C, media
-   analytics through its bearer key, and GitHub through the TGA wrapper.
+   analytics through its bearer key, GitHub through the TGA wrapper, and the
+   Portfolio Research Lab through its versioned helper.
 6. Restart the container and confirm volume-backed skills, state, and session
    history remain available.
 7. Run `node --test workspace/scripts/*.test.mjs` and

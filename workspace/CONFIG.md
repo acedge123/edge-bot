@@ -22,6 +22,7 @@
 - **Google Places + sponsors:** To search venues or enrich a **local sponsors list**, use **`google-places`** (`workspace/skills/google-places/SKILL.md`) with env **`GOOGLE_MAPS_API_KEY`**, and **`sponsors-database`** (`workspace/skills/sponsors-database/SKILL.md`) for the JSON workflow under `workspace/data/sponsors/`.
 - **Mom Walk admin actions:** Use **`mom-walk-manage`** (`workspace/skills/mom-walk-manage/SKILL.md`) for reviewed Mom Walk `/manage` operations. Never recreate its token-minting flow with shell or `curl`; add future actions to the tool's validated registry.
 - **GitHub:** Use **`github`** (`workspace/skills/github/SKILL.md`) and `workspace/scripts/github-via-owner.mjs`. Route `acedge123/*` to `EDGE_BOT_PERSONAL` and `The-Gig-Agency/*` to `EDGE_BOT_TOKEN`. OpenClaw's native GitHub identity status is not authoritative for these Railway credentials.
+- **Portfolio Research Lab / Lovable UI:** Use **`portfolio-research-api`** (`workspace/skills/portfolio-research-api/SKILL.md`) and `workspace/scripts/portfolio-research-api.mjs`. Authenticate with `PORTFOLIO_AGENT_API_KEY` via `x-agent-api-key`; do not ask for a browser, Lovable connection, Supabase session, or direct database login.
 - **Do not run the jobs worker.** The script `workspace/scripts/jobs-worker.mjs` is a **daemon** the user runs separately. You never run it to "get email" or "pull jobs". To get email, use the **gmail-sa** skill only.
 
 ---

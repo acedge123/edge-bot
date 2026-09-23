@@ -15,6 +15,8 @@ Add these to Railway so the agent can access external services:
 | `platform_key` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
 | `EDGE_BOT_PERSONAL` | GitHub credential for `acedge123/*` repositories. Selected only by the owner-aware GitHub helper. |
 | `EDGE_BOT_TOKEN` | GitHub credential for `The-Gig-Agency/*` repositories. `TGA_GH_TOKEN` is the legacy fallback. |
+| `AGENT_API_BASE` | Portfolio Research Lab versioned API base. |
+| `PORTFOLIO_AGENT_API_KEY` | Paper-only portfolio API write credential, sent through `x-agent-api-key`. |
 | `GOOGLE_MAPS_API_KEY` | Optional. **Places API (New)** for **`google-places`** / **`sponsors-database`** skills (venue search, sponsor enrichment). |
 
 **Note:** `AGENT_EDGE_KEY` is for Agent Vault (learnings). `AGENT_HOSTED_EDGE_KEY` is for Echelon (agent-next/agent-ack). They can be different.

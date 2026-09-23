@@ -75,6 +75,8 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Must match the Mom Walk Supabase `AGENT_MINT_SECRET`. |
 | `MOM_WALK_FUNCTIONS_URL` | Optional. Defaults to the production Mom Walk Supabase functions URL. Override only for an intentional environment change. |
 | `MOM_WALK_SUPABASE_ANON_KEY` | Optional publishable/anon key forwarded as `apikey`. The short-lived service-account JWT remains the authorization credential. |
+| `AGENT_API_BASE` | Portfolio Research Lab API base: `https://vqucicshrmzjlsxzqylx.supabase.co/functions/v1/agent-api/v1`. |
+| `PORTFOLIO_AGENT_API_KEY` | Required write-capable key for the paper-only Portfolio Research Lab API; sent as `x-agent-api-key`. |
 
 **Echelon Hosted Agent:** The worker (`echelon-agent-worker.mjs`) runs alongside the gateway and polls `agent-next`, sends jobs to the agent via chat, and acks via `agent-ack`. Requires `AGENT_HOSTED_EDGE_KEY` (same as Echelon backend secrets).
 

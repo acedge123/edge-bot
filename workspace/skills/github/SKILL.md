@@ -37,18 +37,21 @@ silently use one of the two credentials above.
 
 1. For a request to check access, run `check`; do not inspect OpenClaw account
    connections first.
-2. Treat `github_identity_status` and Settings -> Agents -> Tools as
+2. Before reading instructions from an existing checkout, run the helper's
+   `pull` command and confirm the checkout is current. A repository existing on
+   the persistent volume does not mean it is up to date.
+3. Treat `github_identity_status` and Settings -> Agents -> Tools as
    non-authoritative for these env-backed credentials.
-3. Use the helper for `clone`, `fetch`, `pull`, and `push`. It authenticates
+4. Use the helper for `clone`, `fetch`, `pull`, and `push`. It authenticates
    through HTTPS askpass without placing a token in the URL or command line.
-4. Never print token values, authenticated URLs, request headers, or child
+5. Never print token values, authenticated URLs, request headers, or child
    process environments.
-5. Do not push, comment, merge, or otherwise mutate GitHub unless the user
+6. Do not push, comment, merge, or otherwise mutate GitHub unless the user
    requested that action.
-6. If access fails, report the repository, selected environment-variable name,
+7. If access fails, report the repository, selected environment-variable name,
    HTTP/git status, and likely scope or identity issue. Never report a token as
    globally missing based on a different execution surface.
-7. Prefer GitHub's REST API for issue, PR, review, and comment operations when
+8. Prefer GitHub's REST API for issue, PR, review, and comment operations when
    a reviewed helper supports the exact operation. `gh` is not installed in
    the hosted image and is not the authentication source of truth.
 
