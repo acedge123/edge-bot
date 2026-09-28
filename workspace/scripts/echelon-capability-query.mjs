@@ -1,7 +1,8 @@
 const SKILL_ALIASES = new Map([
-  ['email', 'secure-gmail'],
-  ['gmail', 'secure-gmail'],
-  ['secure gmail', 'secure-gmail'],
+  ['email', 'gmail-sa'],
+  ['gmail', 'gmail-sa'],
+  ['secure gmail', 'gmail-sa'],
+  ['google workspace', 'gmail-sa'],
 ]);
 
 function normalizeSkillName(value) {

@@ -68,6 +68,14 @@ else
   done
 fi
 
+# The volume intentionally preserves user-authored skills across deploys, so
+# image sync does not broadly delete directories. Remove only integrations that
+# have an explicit, reviewed retirement decision and a replacement path.
+if [ -d "${WORKSPACE_DIR}/skills/secure-gmail" ]; then
+  rm -rf "${WORKSPACE_DIR}/skills/secure-gmail"
+  echo "[entrypoint] removed retired secure-gmail/Composio skill"
+fi
+
 # One-time migration: preserve the accumulated memory verbatim, then replace the
 # always-injected root file with a compact index. Detailed facts remain available
 # in the archive and vault, but no longer ride along with every model request.
@@ -91,7 +99,7 @@ for bootstrap_file in AGENTS.md SOUL.md IDENTITY.md USER.md BOOTSTRAP.md MEMORY.
     echo "[entrypoint] bootstrap candidate ${bootstrap_file}: ${bootstrap_bytes} bytes"
   fi
 done
-echo "[entrypoint] raw bootstrap candidates: ${bootstrap_total} bytes; configured total cap: 12000 chars"
+echo "[entrypoint] raw bootstrap candidates: ${bootstrap_total} bytes; configured total cap: 150000 chars"
 
 # Keep mutable OpenClaw state under the Railway-mounted workspace volume. The
 # image remains the source of truth for config, while cron/session SQLite state

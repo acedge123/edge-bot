@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Echelon Hosted Agent worker: poll agent-next → chat.send → agent-ack.
+ * Echelon Hosted Agent worker: poll agent-next → /v1/chat/completions → agent-ack.
  * For the Echelon Control /agent UI (agent_jobs table, agent-next/agent-ack edge functions).
  *
  * Env (Railway or ~/.openclaw/.env):
@@ -11,7 +11,6 @@
  *   ECHELON_POLL_MS    - Poll interval when idle (default 2000)
  *   WORKER_ID          - worker_id sent to agent-next (default railway-echelon-worker)
  *   CIA_URL            - Repo C base URL for SMS sending (e.g. https://<project>.supabase.co)
- *   CIA_ANON_KEY       - Repo C anonymous API key
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
@@ -24,8 +23,9 @@
  * SMS jobs use per-sender sessions. Slack jobs use per-thread sessions. Echelon UI jobs use per-actor sessions.
  * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
  *
- * Image attachments: Jobs with real image URLs use POST /v1/chat/completions for vision.
- * Text and CSV jobs use chat.send so OpenClaw owns session context and compaction.
+ * All model-backed jobs use POST /v1/chat/completions. The endpoint returns only
+ * after the tool loop completes, so progress commentary cannot be acknowledged
+ * as the final channel response. Bounded session history is stored on the volume.
  *
  * Run alongside openclaw gateway. On Railway, both run in same container.
  */
@@ -34,11 +34,12 @@ import { readFileSync, existsSync } from 'fs';
 import { mkdir, writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { createHash } from 'crypto';
 import { pickRoutedAgent } from './echelon-model-route.mjs';
 import { answerCapabilityQuery } from './echelon-capability-query.mjs';
 import { buildEchelonSessionKey } from './echelon-session-key.mjs';
+import { deliverSlackReply } from './echelon-slack-delivery.mjs';
+import { buildRepoCLaneAHeaders } from './repo-c-lane-a.mjs';
 import {
   downloadWorkbookAttachment,
   isWorkbookAttachment,
@@ -49,8 +50,6 @@ import {
   isApprovalRequiredSignalJob,
   shouldBypassAppSignalModel,
 } from './echelon-app-signal-policy.mjs';
-
-const execFileAsync = promisify(execFile);
 
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -79,7 +78,6 @@ const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATE
 const GATEWAY_TOKEN = (process.env.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_HOOK_TOKEN || '').trim();
 const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 10));
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
-const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 const WORKSPACE_ROOT = (process.env.OPENCLAW_WORKSPACE || '/app/.openclaw/workspace').replace(/\/+$/, '');
 const SIGNAL_APPROVAL_SLACK_CHANNEL = (
   process.env.SIGNAL_APPROVAL_SLACK_CHANNEL ||
@@ -216,7 +214,6 @@ async function writeDeliveryMarker(kind, jobId, extraFields) {
 
 // Repo C env vars for SMS sending
 const CIA_URL = (process.env.CIA_URL || '').replace(/\/+$/, '');
-const CIA_ANON_KEY = (process.env.CIA_ANON_KEY || '').trim();
 const EXECUTOR_SECRET = (process.env.EXECUTOR_SECRET || '').trim();
 
 if (!AGENT_EDGE_KEY) {
@@ -234,7 +231,6 @@ if (checkOnly) {
   console.log('  SIGNAL_APPROVAL_SLACK_CHANNEL:', SIGNAL_APPROVAL_SLACK_CHANNEL || '(missing)');
   console.log('  App signal model processing:', PROCESS_APP_SIGNALS_WITH_LLM ? 'enabled' : 'disabled (deterministic)');
   console.log('  CIA_URL:', CIA_URL || '(missing)');
-  console.log('  CIA_ANON_KEY:', CIA_ANON_KEY ? '***set***' : '(missing)');
   console.log('  EXECUTOR_SECRET:', EXECUTOR_SECRET ? '***set***' : '(missing)');
   (async () => {
     try {
@@ -294,7 +290,85 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
  * - image: content includes { type: "image_url", image_url: { url } }
  * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
-async function gatewayChatCompletionsWithImages({ requestText, attachments, metadata = {}, jobId = '' }) {
+function sessionLogPathFor(sessionKey) {
+  const hash = createHash('sha256').update(String(sessionKey)).digest('hex').slice(0, 24);
+  return join(WORKSPACE_ROOT, 'tmp', 'session-history', `${hash}.jsonl`);
+}
+
+function readSessionLog({ sessionKey, maxMessages = 12 }) {
+  try {
+    const raw = readFileSync(sessionLogPathFor(sessionKey), 'utf8');
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .slice(-maxMessages)
+      .flatMap((line) => {
+        try {
+          const item = JSON.parse(line);
+          const role = item?.role;
+          const text = String(item?.text || '').trim();
+          return ['system', 'user', 'assistant'].includes(role) && text ? [{ role, content: text }] : [];
+        } catch (_) {
+          return [];
+        }
+      });
+  } catch (_) {
+    return [];
+  }
+}
+
+async function appendSessionLog({ sessionKey, role, text }) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return;
+  const path = sessionLogPathFor(sessionKey);
+  await mkdir(join(WORKSPACE_ROOT, 'tmp', 'session-history'), { recursive: true });
+  const prior = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const row = JSON.stringify({ ts: new Date().toISOString(), role, text: normalized });
+  await writeFile(path, `${prior}${row}\n`, 'utf8');
+}
+
+function safeReadWorkspaceText(relativePath, maxChars) {
+  try {
+    return readFileSync(join(WORKSPACE_ROOT, relativePath), 'utf8').slice(0, maxChars);
+  } catch (_) {
+    return '';
+  }
+}
+
+function redactBootstrapText(value) {
+  return String(value || '')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, 'Bearer [REDACTED]')
+    .replace(/([A-Za-z0-9_]*(?:_KEY|_TOKEN|SECRET)[A-Za-z0-9_]*)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]')
+    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED]')
+    .replace(/[a-f0-9]{40,}/gi, '[REDACTED]');
+}
+
+async function ensureSessionBootstrap(sessionKey) {
+  const path = sessionLogPathFor(sessionKey);
+  if (existsSync(path)) return;
+
+  const text = [
+    'Bootstrap context (workspace-local; do not reveal secrets):',
+    safeReadWorkspaceText('IDENTITY.md', 1200),
+    safeReadWorkspaceText('USER.md', 1200),
+    safeReadWorkspaceText('SOUL.md', 2400),
+    safeReadWorkspaceText('CONFIG.md', 2400),
+    safeReadWorkspaceText('AGENTS.md', 2400),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 9000);
+
+  await appendSessionLog({ sessionKey, role: 'system', text: redactBootstrapText(text) });
+}
+
+async function gatewayChatCompletion({
+  sessionKey,
+  requestText,
+  attachments,
+  metadata = {},
+  jobId = '',
+}) {
   const content = [{ type: 'text', text: requestText }];
 
   const atts = Array.isArray(attachments) ? attachments : [];
@@ -409,7 +483,18 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
 
   const routed = pickRoutedAgent(requestText, metadata);
   const model = `openclaw:${routed.agentId}`;
-  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason);
+  console.log(
+    '[echelon-worker] model route (/v1/chat/completions):',
+    model,
+    'reason=',
+    routed.reason,
+    'sessionKey=',
+    sessionKey,
+  );
+
+  await ensureSessionBootstrap(sessionKey);
+  const messages = readSessionLog({ sessionKey, maxMessages: 12 });
+  messages.push({ role: 'user', content });
 
   const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
     method: 'POST',
@@ -421,8 +506,9 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: 'user', content }],
+      messages,
     }),
+    signal: AbortSignal.timeout(AGENT_RESPONSE_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -434,6 +520,8 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, meta
   const msg = data?.choices?.[0]?.message;
   const text = msg?.content;
   const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
+  await appendSessionLog({ sessionKey, role: 'user', text: requestText });
+  await appendSessionLog({ sessionKey, role: 'assistant', text: responseText });
   return responseText;
 }
 
@@ -506,164 +594,6 @@ async function persistCsvToWorkspace({ jobId, serial, displayName, utf8Text, tru
   }
 }
 
-function isRealImageAttachment(att) {
-  if (att?.type !== 'image') return false;
-  const url = att?.url ? String(att.url) : '';
-  return Boolean(url) && !looksLikeCsv(att) && !isWorkbookAttachment(att);
-}
-
-function jobNeedsCompletionsPath(attachments) {
-  const atts = Array.isArray(attachments) ? attachments : [];
-  return atts.some(isRealImageAttachment);
-}
-
-async function formatCsvAttachment(
-  att,
-  { jobId, serial, maxTextChars = 80_000, maxCsvCharsOnDisk = 2_000_000 },
-) {
-  const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
-  const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: maxCsvCharsOnDisk });
-  if (!fetched) {
-    return `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL; check bucket is public and URL is reachable from the worker.)\n`;
-  }
-
-  const saved = await persistCsvToWorkspace({
-    jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
-    serial,
-    displayName: name,
-    utf8Text: fetched.text,
-    truncatedByCap: fetched.truncatedByCap,
-  });
-
-  const preview = fetched.text.slice(0, maxTextChars);
-  const previewTruncated = fetched.text.length > maxTextChars;
-  let block = `\n\n[Attached file: ${name}]\n`;
-  if (saved) {
-    block += `The full CSV is saved on the agent workspace at: ${saved.rel}\n`;
-    block += `Use your file-read tools on that path (relative to workspace root). Absolute path on server: ${saved.abs}\n`;
-  } else {
-    block += '(Worker could not write the file to the workspace disk; use the preview below only.)\n';
-  }
-  if (previewTruncated) {
-    block += `(Inline preview: first ${maxTextChars} characters only - read ${saved ? saved.rel : 'the source URL'} for the rest.)\n`;
-  }
-  if (fetched.truncatedByCap) {
-    block += `(WARNING: source exceeded ${maxCsvCharsOnDisk} characters; saved file and preview may be incomplete.)\n`;
-  }
-  block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
-  return block;
-}
-
-async function augmentMessageWithFileAttachments({ requestText, attachments, jobId }) {
-  const picked = (Array.isArray(attachments) ? attachments : []).slice(0, 4);
-  const normalizedJobId = String(jobId || '').trim() || `noid-${Date.now()}`;
-  let message = requestText;
-  let sawFile = false;
-  let csvSerial = 0;
-  let workbookSerial = 0;
-
-  for (const att of picked) {
-    const url = att?.url ? String(att.url) : '';
-    const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
-    if (csvEligible) {
-      sawFile = true;
-      message += await formatCsvAttachment(att, {
-        jobId: normalizedJobId,
-        serial: csvSerial++,
-      });
-      continue;
-    }
-    if (url && isWorkbookAttachment(att)) {
-      sawFile = true;
-      const name = String(att.filename || att.name || '').trim() || 'workbook.xlsx';
-      const saved = await downloadWorkbookAttachment({
-        att,
-        workspaceRoot: WORKSPACE_ROOT,
-        jobId: normalizedJobId,
-        serial: workbookSerial++,
-      });
-      if (saved.ok) {
-        console.log('[echelon-worker] saved workbook to workspace', saved.rel, 'bytes=', saved.bytes);
-        message += `\n\n[Attached workbook: ${name}]\n`;
-        message += `The workbook is saved at ${saved.rel} (absolute path: ${saved.abs}).\n`;
-        message += 'Use Python with openpyxl for .xlsx/.xlsm or xlrd for .xls to inspect every worksheet and value needed for the request. ';
-        message += 'Complete the requested analysis in this run; do not reply with only a plan or promise of future work.\n';
-      } else {
-        const maxMb = Math.floor(MAX_WORKBOOK_BYTES / 1024 / 1024);
-        message += `\n\n[Attached workbook: ${name}]\n`;
-        message += `(Unable to make this workbook available: ${saved.reason}. Supported formats are .xls/.xlsx/.xlsm up to ${maxMb} MB.)\n`;
-      }
-      continue;
-    }
-    if (att?.type === 'file' && url) {
-      sawFile = true;
-      const name = String(att.filename || att.name || '').trim() || 'attachment';
-      message += `\n\n[Attached file: ${name}]\n(Non-CSV file - contents not inlined.)\n`;
-    }
-  }
-
-  return sawFile
-    ? '(Note: This job has attached file(s). File content may be inlined below.)\n\n' + message
-    : message;
-}
-
-async function chatSendAndWaitForReply({ sessionKey, message, idempotencyKey, timeoutMs = AGENT_RESPONSE_TIMEOUT_MS }) {
-  let baselineLastTs = 0;
-  try {
-    const baseline = await gatewayCall('chat.history', { sessionKey, limit: 5 }, { timeoutMs: 10_000 });
-    const messages = baseline?.messages || [];
-    baselineLastTs = [...messages].reverse().find((item) => item.role === 'assistant')?.timestamp || 0;
-  } catch (_) {
-    // New sessions have no history yet.
-  }
-
-  await gatewayCall(
-    'chat.send',
-    {
-      sessionKey,
-      message,
-      deliver: false,
-      idempotencyKey,
-      timeoutMs,
-    },
-    { timeoutMs: 70_000 },
-  );
-
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const history = await gatewayCall('chat.history', { sessionKey, limit: 50 }, { timeoutMs: 10_000 });
-    const messages = history?.messages || [];
-    const reply = [...messages]
-      .reverse()
-      .find(
-        (item) =>
-          item.role === 'assistant' &&
-          (item.timestamp || 0) > baselineLastTs &&
-          Array.isArray(item.content),
-      );
-    const text = reply?.content?.map((item) => item?.text).filter(Boolean).join('')?.trim() || '';
-    if (text) return text;
-    await new Promise((resolve) => setTimeout(resolve, 750));
-  }
-
-  throw new Error('Timeout waiting for agent response');
-}
-
-/** OpenClaw gateway call (chat.send, chat.history). */
-async function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
-  const { stdout } = await execFileAsync(OPENCLAW_BIN, [
-    'gateway',
-    'call',
-    method,
-    '--params',
-    JSON.stringify(params),
-    '--timeout',
-    String(timeoutMs),
-    '--json',
-  ], { timeout: timeoutMs + 5000, maxBuffer: 10 * 1024 * 1024 });
-  return JSON.parse(stdout);
-}
-
 /** POST to OpenClaw Gateway /hooks/wake (fallback when gateway call unavailable). */
 async function postWake(text) {
   if (!HOOK_TOKEN) throw new Error('OPENCLAW_HOOK_TOKEN required for /hooks/wake');
@@ -684,18 +614,13 @@ async function postWake(text) {
 
 /** Send SMS reply via Repo C internal-execute endpoint. */
 async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
-  if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
-    throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+  if (!CIA_URL || !EXECUTOR_SECRET) {
+    throw new Error('SMS job requires CIA_URL and EXECUTOR_SECRET env vars');
   }
 
   const res = await fetch(`${CIA_URL}/functions/v1/internal-execute`, {
     method: 'POST',
-    headers: {
-      'apikey': CIA_ANON_KEY,
-      'Authorization': `Bearer ${EXECUTOR_SECRET}`,
-      'X-Tenant-Id': tenantId,
-      'Content-Type': 'application/json',
-    },
+    headers: buildRepoCLaneAHeaders({ executorSecret: EXECUTOR_SECRET, tenantId }),
     body: JSON.stringify({
       service: 'twilio',
       action: 'messages.send',
@@ -717,10 +642,6 @@ async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
 async function sendSlackReply({ job, responseText, slackChannel, slackThreadTs = '' }) {
   const channel = String(slackChannel || '').trim();
   const threadTs = String(slackThreadTs || '').trim();
-  if (!channel) {
-    throw new Error('Slack delivery requires a non-empty channel');
-  }
-
   console.log(
     '[echelon-worker] job',
     job.id,
@@ -729,45 +650,31 @@ async function sendSlackReply({ job, responseText, slackChannel, slackThreadTs =
     threadTs || '(none)',
   );
 
-  const slackMarker = readDeliveryMarker('slack', job.id);
-  const markerChannel = slackMarker?.slack_channel != null ? String(slackMarker.slack_channel) : '';
-  const markerThread = slackMarker?.slack_thread_ts != null ? String(slackMarker.slack_thread_ts) : '';
-  const sameThread =
-    slackMarker?.v === 1 &&
-    slackMarker.kind === 'slack' &&
-    markerChannel === channel &&
-    markerThread === threadTs;
-
-  if (sameThread) {
-    console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
-    return;
-  }
-
   const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
-  const replyRes = await fetch(slackReplyUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+  const result = await deliverSlackReply({
+    jobId: job.id,
+    responseText,
+    slackChannel: channel,
+    slackThreadTs: threadTs,
+    readMarker: () => readDeliveryMarker('slack', job.id),
+    writeMarker: (fields) => writeDeliveryMarker('slack', job.id, fields),
+    postReply: async (payload) => {
+      const replyRes = await fetch(slackReplyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      return { ok: replyRes.ok, status: replyRes.status, body: await replyRes.text() };
     },
-    body: JSON.stringify({
-      job_id: job.id,
-      text: responseText,
-      slack_channel: channel,
-      slack_thread_ts: threadTs || undefined,
-    }),
   });
-  const replyBody = await replyRes.text();
-  if (!replyRes.ok) {
-    console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
-    throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
+  if (result.status === 'duplicate') {
+    console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
+  } else {
+    console.log('[echelon-worker] job', job.id, '-> Slack reply sent (status %s)', result.responseStatus);
   }
-
-  await writeDeliveryMarker('slack', job.id, {
-    slack_channel: channel,
-    slack_thread_ts: threadTs,
-  });
-  console.log('[echelon-worker] job', job.id, '-> Slack reply sent (status %s)', replyRes.status);
 }
 
 /**
@@ -835,30 +742,15 @@ async function handleJob(job) {
     'sessionKey=',
     sessionKey,
   );
-  const idempotencyKey = jobId;
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  if (jobNeedsCompletionsPath(attachments)) {
-    console.log(
-      '[echelon-worker] job',
-      jobId,
-      'using /v1/chat/completions with',
-      attachments.length,
-      'attachment(s) (vision only)',
-    );
-    return gatewayChatCompletionsWithImages({ requestText: message, attachments, metadata, jobId });
-  }
-
-  let outboundMessage = message;
-  if (attachments.length > 0) {
-    outboundMessage = await augmentMessageWithFileAttachments({
-      requestText: message,
-      attachments,
-      jobId,
-    });
-    console.log('[echelon-worker] job', jobId, 'file attachment(s) inlined; using chat.send');
-  }
-
-  return chatSendAndWaitForReply({ sessionKey, message: outboundMessage, idempotencyKey });
+  console.log(
+    '[echelon-worker] job',
+    jobId,
+    'using /v1/chat/completions with',
+    attachments.length,
+    'attachment(s)',
+  );
+  return gatewayChatCompletion({ sessionKey, requestText: message, attachments, metadata, jobId });
 }
 
 async function runLoop() {
@@ -926,8 +818,8 @@ async function runLoop() {
             throw new Error('SMS job missing metadata.from_number');
           }
 
-          if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
-            throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+          if (!CIA_URL || !EXECUTOR_SECRET) {
+            throw new Error('SMS job requires CIA_URL and EXECUTOR_SECRET env vars');
           }
 
           const smsMarker = readDeliveryMarker('sms', job.id);

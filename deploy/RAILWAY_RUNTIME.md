@@ -10,14 +10,14 @@
 
 | Field | Value |
 |--------|--------|
-| **Last verified** | `YYYY-MM-DD` ← set when you confirm below in the Railway dashboard |
-| **Railway project** | *(dashboard project name, optional)* |
-| **Service name** | *(e.g. edge-bot gateway service)* |
-| **Environment** | `production` / `preview` / other |
-| **Persistent volume** | Yes — attached to this service |
-| **Volume mount path** | `/app/.openclaw/workspace` *(expected by `deploy/entrypoint.sh` for durable workspace files and OpenClaw runtime state under `.openclaw-state/`; **confirm** under Service → Volumes)* |
-| **Volume label (Railway UI)** | *(optional; helps humans find the volume)* |
-| **Public URL(s)** | *(Railway-generated or custom domain; no secrets)* |
+| **Last verified** | `2026-09-22` through Railway CLI |
+| **Railway project** | `balanced-wisdom` |
+| **Service name** | `edge-bot` |
+| **Environment** | `production` |
+| **Persistent volume** | Yes — `5000 MB`, attached to this service |
+| **Volume mount path** | `/app/.openclaw/workspace` |
+| **Volume label (Railway UI)** | `edge-bot-volume` |
+| **Public URL(s)** | `https://edge-bot-production.up.railway.app` |
 
 If your mount path is **not** `/app/.openclaw/workspace`, document the actual path here and note any repo changes required (`entrypoint.sh`, skills that hardcode paths).
 

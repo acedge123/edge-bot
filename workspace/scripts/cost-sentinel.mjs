@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * Cost Sentinel (v1): OpenAI + (stub) Composio
+ * Cost Sentinel (v1): OpenAI
  *
  * Produces a short text report suitable for iMessage.
  *
  * Env:
  *   OPENAI_API_KEY (required for OpenAI)
- *   COMPOSIO_API_KEY (optional; v1 stub)
  */
 
 import { readFileSync, existsSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
@@ -189,13 +188,6 @@ async function buildReport() {
     });
     if (openaiMtd.ok) lines.push(`OpenAI (MTD): ${formatUSD(openaiMtd.usd)}`);
 
-    // Composio v1 stub
-    if (process.env.COMPOSIO_API_KEY) {
-      lines.push('Composio: usage/billing check not implemented yet (key detected)');
-    } else {
-      lines.push('Composio: not configured');
-    }
-
     lines.push('Reply “details” if you want a provider breakdown + anomaly check.');
     return lines.join('\n');
   }
@@ -213,12 +205,6 @@ async function buildReport() {
     endUnixSec: Math.floor(new Date(endToday).getTime() / 1000),
   });
   if (openaiMtd.ok) lines.push(`OpenAI (MTD): ${formatUSD(openaiMtd.usd)}`);
-
-  if (process.env.COMPOSIO_API_KEY) {
-    lines.push('Composio: usage/billing check not implemented yet (key detected)');
-  } else {
-    lines.push('Composio: not configured');
-  }
 
   return lines.join('\n');
 }

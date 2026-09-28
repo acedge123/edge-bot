@@ -59,10 +59,13 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .agents.defaults.thinkingDefault = "low" |
     .agents.defaults.heartbeat.every = "0m" |
     .agents.defaults.heartbeat.agentId = "main" |
-    .agents.defaults.bootstrapMaxChars = 7000 |
+    .agents.defaults.contextInjection = "always" |
+    .agents.defaults.bootstrapMaxChars = 20000 |
+    .agents.defaults.bootstrapTotalMaxChars = 150000 |
+    .agents.defaults.startupContext = {"enabled":true} |
     .agents.defaults.systemAgent.agentId = "main" |
-    .agents.entries = {"main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace","skills":["secure-gmail","github","brave-search","Agent Browser","mom-walk-manage","youtrack-via-repo-c","small-business-finance-tax","sponsors-database","slack","supabase","wiki-engine","google-places"]},"main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace","skills":["secure-gmail","github","brave-search","Agent Browser","mom-walk-manage","youtrack-via-repo-c","small-business-finance-tax","sponsors-database","slack","supabase","wiki-engine","google-places"]},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace","skills":["github","repo-map","pr-code-review-qa","cursor-agent","supabase","youtrack-via-repo-c","mom-walk-manage","Agent Browser","brave-search","aws-roles-anywhere","governance-runtime","secure-gmail"]},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace","skills":["github","repo-map","pr-code-review-qa","cursor-agent","supabase","youtrack-via-repo-c","mom-walk-manage","Agent Browser","brave-search","aws-roles-anywhere","governance-runtime","secure-gmail"]}} |
-    .memory.search.enabled = false |
+    .agents.entries = {"main":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},"main-light":{"model":"openai/gpt-5.6-luna","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.6-sol","workspace":"/app/.openclaw/workspace"}} |
+    .memory.search.enabled = true |
     .memory.search.provider = "none" |
     .memory.search.rememberAcrossConversations = false |
     .memory.search.sources = ["memory"] |
@@ -71,8 +74,9 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
     .skills.workshop.autonomous.mode = "off" |
     .tools.deny = ["computer","sessions_spawn","subagents","automations","skill_workshop","canvas","image_generate","music_generate","video_generate","tts","nodes","node_exec","node_inference","mobile_ui","conversations_*","sessions_list","sessions_history","sessions_search","sessions_send","sessions_yield","agents_list","progress_card"] |
     .skills.allowBundled = [] |
-    .skills.limits.maxSkillsInPrompt = 12 |
-    .skills.limits.maxSkillsPromptChars = 2200 |
+    del(.skills.limits) |
+    .discovery.mdns.mode = "off" |
+    .plugins.entries["memory-core"].enabled = true |
     .plugins.entries["memory-core"].config.dreaming.enabled = false |
     .plugins.entries.brave.enabled = true |
     .plugins.entries.codex.enabled = true |
@@ -83,16 +87,21 @@ if [ -f "$DEST/openclaw.json" ] && command -v jq &>/dev/null; then
   jq -e '
     .agents.defaults.heartbeat.every == "0m" and
     .agents.defaults.thinkingDefault == "low" and
-    .agents.defaults.bootstrapMaxChars == 7000 and
-    .skills.limits.maxSkillsInPrompt == 12 and
-    .skills.limits.maxSkillsPromptChars == 2200 and
+    .agents.defaults.contextInjection == "always" and
+    .agents.defaults.bootstrapMaxChars == 20000 and
+    .agents.defaults.bootstrapTotalMaxChars == 150000 and
+    .agents.defaults.startupContext.enabled == true and
+    (.agents.entries.main | has("skills") | not) and
+    (.skills | has("limits") | not) and
     (.tools.deny | index("computer")) != null and
     (.tools.deny | index("sessions_spawn")) != null and
-    .memory.search.enabled == false and
+    .memory.search.enabled == true and
     .memory.search.provider == "none" and
     .cron.enabled == false and
     .cron.triggers.enabled == false and
     .skills.workshop.autonomous.mode == "off" and
+    .discovery.mdns.mode == "off" and
+    .plugins.entries["memory-core"].enabled == true and
     .plugins.entries["memory-core"].config.dreaming.enabled == false and
     .agents.defaults.model.primary == "openai/gpt-5.6-luna" and
     .agents.entries.main.model == "openai/gpt-5.6-luna" and
