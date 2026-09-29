@@ -1,11 +1,14 @@
 ---
 name: enrich-directory-api
-description: Agent workflow for Brand Connect Hub's Supabase Edge Function that queues/claims/enriches directory or prospect rows (local_sponsors / local_prospects). Use when implementing or operating the enrichment agent, testing the /enrich-directory endpoints, debugging 401 Unauthorized (ENRICHMENT_AGENT_KEY), or updating docs/client code for claim-next/update/release/stats routes.
+description: Agent workflow for Brand Connect Hub's Supabase Edge Functions that queue/enrich directory rows and run community sponsor discovery through agent-sponsor-ops. Use when operating local sponsor enrichment, resolving communities, running POST /agent-sponsor-ops/run-cycle, testing /enrich-directory endpoints, debugging 401 Unauthorized (ENRICHMENT_AGENT_KEY), or updating docs/client code for claim/update/release/stats routes.
 ---
 
 # Enrich Directory API (Brand Connect Hub)
 
-Operate the **Brand Connect Hub** Supabase Edge Function `enrich-directory`, used by an external “enrichment agent” to claim rows from `local_sponsors` or `local_prospects`, scrape/enrich them, then write enriched fields back.
+Operate the **Brand Connect Hub** Supabase Edge Functions for local sponsor enrichment:
+
+- `agent-sponsor-ops`: community-level sponsor discovery and ambassador approval queue promotion
+- `enrich-directory`: low-level row claim/enrichment for `local_sponsors` or `local_prospects`
 
 ## Quick facts
 
@@ -14,8 +17,48 @@ Operate the **Brand Connect Hub** Supabase Edge Function `enrich-directory`, use
 - Docs: `docs/enrich-directory-api.md`
 - Auth env var: `ENRICHMENT_AGENT_KEY` (Railway: set in the Brand Connect Hub service env)
 - Primary use case now includes local prospect enrichment, not just sponsor-directory cleanup
+- Sponsor-review discovery uses `/usr/local/bin/brand-connect-sponsor-ops` so the host, path, auth header, and dry-run safety stay fixed
 
-## API surface (what to call)
+## Community sponsor ops (preferred for ambassador approval queue)
+
+For requests such as “target these communities,” “run sponsor ops,” “add qualifying businesses to the ambassador approval queue,” or `POST /agent-sponsor-ops/run-cycle`, use:
+
+```sh
+brand-connect-sponsor-ops search-communities --query Gaithersburg --state MD --limit 10
+brand-connect-sponsor-ops run-cycle --community-id <uuid> --dry-run true
+```
+
+Canonical contract:
+
+- Base: `https://evthfmqawotwbbkxfxep.supabase.co/functions/v1/agent-sponsor-ops`
+- Auth: `Authorization: Bearer $ENRICHMENT_AGENT_KEY`
+- Default mode: `dry_run: true`
+- `dry_run: true` can discover and promote qualifying businesses to ambassador `pending_review`; it must not send outreach emails.
+- Never use `AGENT_API_BASE`, `AGENT_API_KEY`, `PORTFOLIO_AGENT_API_KEY`, `BRAND_PORTAL_API_KEY`, or `x-agent-api-key` for this endpoint.
+- Never call a generic Supabase project URL or `/functions/v1/enrich-directory/agent-sponsor-ops`; `agent-sponsor-ops` is its own function path.
+
+Useful commands:
+
+```sh
+brand-connect-sponsor-ops stats
+brand-connect-sponsor-ops review-status --days 1 --community "Gaithersburg, MD"
+brand-connect-sponsor-ops next-community
+brand-connect-sponsor-ops run-cycle --community "Gaithersburg, MD" --dry-run true
+```
+
+If `stats` returns `401`, the `ENRICHMENT_AGENT_KEY` value on this execution surface does not match the Brand Connect Hub Supabase Edge Function secret. Do not try alternate API keys; report the key mismatch.
+
+If a hand-written request is absolutely necessary, it must match this pattern:
+
+```sh
+curl -sS \
+  -H "Authorization: Bearer $ENRICHMENT_AGENT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"community_id":"<uuid>","dry_run":true,"agent_id":"open-claw"}' \
+  https://evthfmqawotwbbkxfxep.supabase.co/functions/v1/agent-sponsor-ops/run-cycle
+```
+
+## Low-level enrich-directory API surface
 
 Base URL:
 

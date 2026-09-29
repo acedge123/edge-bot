@@ -41,8 +41,11 @@ RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 # Root-owned, policy-constrained client for Mom Walk /manage actions. The agent
 # may execute this binary, but does not receive general shell or curl access.
 COPY tools/mom-walk-manage.mjs /usr/local/lib/edge-bot/mom-walk-manage.mjs
+COPY tools/brand-connect-sponsor-ops.mjs /usr/local/lib/edge-bot/brand-connect-sponsor-ops.mjs
 RUN chmod 755 /usr/local/lib/edge-bot/mom-walk-manage.mjs \
-  && ln -s /usr/local/lib/edge-bot/mom-walk-manage.mjs /usr/local/bin/mom-walk-manage
+  && chmod 755 /usr/local/lib/edge-bot/brand-connect-sponsor-ops.mjs \
+  && ln -s /usr/local/lib/edge-bot/mom-walk-manage.mjs /usr/local/bin/mom-walk-manage \
+  && ln -s /usr/local/lib/edge-bot/brand-connect-sponsor-ops.mjs /usr/local/bin/brand-connect-sponsor-ops
 
 # Create runtime directory
 RUN mkdir -p /app/.openclaw
