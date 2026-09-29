@@ -10,6 +10,8 @@ GITHUB_SKILL="$ROOT_DIR/workspace/skills/github/SKILL.md"
 GITHUB_DOC="$ROOT_DIR/workspace/docs/GITHUB_ACCESS_FOR_AGENT.md"
 PORTFOLIO_HELPER="$ROOT_DIR/workspace/scripts/portfolio-research-api.mjs"
 PORTFOLIO_SKILL="$ROOT_DIR/workspace/skills/portfolio-research-api/SKILL.md"
+SPONSOR_OPS_HELPER="$ROOT_DIR/tools/brand-connect-sponsor-ops.mjs"
+ENRICH_DIRECTORY_SKILL="$ROOT_DIR/workspace/skills/enrich-directory-api/SKILL.md"
 
 test -s "$WRAPPER_CONTRACT"
 grep -q 'GitHub override' "$WRAPPER_CONTRACT"
@@ -24,6 +26,13 @@ test -x "$PORTFOLIO_HELPER"
 grep -q 'PORTFOLIO_AGENT_API_KEY' "$PORTFOLIO_HELPER"
 grep -q 'x-agent-api-key' "$PORTFOLIO_HELPER"
 grep -q 'Do not stop after saying' "$PORTFOLIO_SKILL"
+test -x "$SPONSOR_OPS_HELPER"
+grep -q 'DEFAULT_SPONSOR_OPS_BASE' "$SPONSOR_OPS_HELPER"
+grep -q 'Authorization.*Bearer' "$SPONSOR_OPS_HELPER"
+grep -q 'Live sponsor outreach requires --confirm-live' "$SPONSOR_OPS_HELPER"
+grep -q 'brand-connect-sponsor-ops search-communities' "$ENRICH_DIRECTORY_SKILL"
+grep -q 'Never use `AGENT_API_BASE`' "$ENRICH_DIRECTORY_SKILL"
+grep -q '/usr/local/bin/brand-connect-sponsor-ops' "$ROOT_DIR/deploy/entrypoint.sh"
 
 jq -e '
   .agents.defaults.heartbeat.every == "0m" and
@@ -87,6 +96,7 @@ node --test "$ROOT_DIR/workspace/scripts/echelon-slack-delivery.test.mjs" >/dev/
 node --test "$ROOT_DIR/workspace/scripts/repo-c-lane-a.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/github-via-owner.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/portfolio-research-api.test.mjs" >/dev/null
+node --test "$ROOT_DIR/tools/brand-connect-sponsor-ops.test.mjs" >/dev/null
 
 if grep -q 'plugins list' "$ROOT_DIR/deploy/entrypoint.sh"; then
   echo "Entrypoint must not dump the full plugin inventory during startup." >&2
