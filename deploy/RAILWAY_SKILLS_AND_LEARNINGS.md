@@ -13,12 +13,15 @@ Add these to Railway so the agent can access external services:
 | `AGENT_VAULT_URL` | Supabase Edge Function URL for agent-vault (e.g. `https://<project>.supabase.co/functions/v1/agent-vault`) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault (learnings, contacts, tasks). Same value as in Supabase secrets. |
 | `platform_key` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
+| `EDGE_BOT_PERSONAL` | GitHub credential for `acedge123/*` repositories. Selected only by the owner-aware GitHub helper. |
+| `EDGE_BOT_TOKEN` | GitHub credential for `The-Gig-Agency/*` repositories. `TGA_GH_TOKEN` is the legacy fallback. |
+| `AGENT_API_BASE` | Portfolio Research Lab versioned API base. |
+| `PORTFOLIO_AGENT_API_KEY` | Paper-only portfolio API write credential, sent through `x-agent-api-key`. |
 | `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Exchanges for a short-lived Mom Walk admin JWT. |
 | `MOM_WALK_SUPABASE_ANON_KEY` | Optional but recommended for Mom Walk Edge Function calls. |
 | `MOM_WALK_FUNCTIONS_URL` | Optional override for Mom Walk functions; defaults to production. |
 | `SURVEY_HUB_MANAGE_SECRET` | Required for the `survey-hub-manage` tool. Must match Client Survey Hub `MANAGE_API_SECRET`; do not use service-role keys in Railway. |
 | `SURVEY_HUB_FUNCTIONS_URL` | Optional override for Client Survey Hub functions; defaults to production. |
-| `GITHUB_TOKEN` | Optional. GitHub PAT (or machine-user token) with read access to repos the agent should clone/pull. See **docs/GITHUB_ACCESS_FOR_AGENT.md**. |
 | `GOOGLE_MAPS_API_KEY` | Optional. **Places API (New)** for **`google-places`** / **`sponsors-database`** skills (venue search, sponsor enrichment). |
 
 **Note:** `AGENT_EDGE_KEY` is for Agent Vault (learnings). `AGENT_HOSTED_EDGE_KEY` is for Echelon (agent-next/agent-ack). They can be different.
@@ -77,19 +80,20 @@ No need to copy files — learnings are already in Supabase.
 
 After deploy, send a message like "Find a creator who likes fitness and add to a list" in the Hosted Agent UI. If the agent can query learnings and use CIQ, it should work. If not, check Railway logs for missing env vars or auth errors.
 
-## 8. OpenClaw gateway cron (why it disappears on redeploy)
+## 8. OpenClaw gateway cron persistence
 
-**What you observed is expected** if cron jobs live only in the container’s OpenClaw state dir (`/app/.openclaw/cron/`, often `jobs.json`).
+Mutable OpenClaw state now lives at `/app/.openclaw/workspace/.openclaw-state`, inside the Railway-mounted workspace volume. This includes the real `cron/` directory required by OpenClaw 2026.8+.
 
-- **Ephemeral disk:** Each Railway redeploy starts a **new** container from the image. Anything written under `/app/.openclaw` **except** what is on a **persistent volume** is reset.
-- **Repo does not ship cron by default:** `.gitignore` excludes `cron/` under the workspace; `deploy/runtime-template/` has **no** cron bundle. The Docker image only includes cron if `deploy/package-runtime.sh` copied it from your laptop’s `~/.openclaw/cron` **and** that folder was present in `deploy/runtime/` at build time (and `deploy/runtime/` itself is usually not committed).
-- **Entrypoint** (`deploy/entrypoint.sh`) re-syncs workspace `scripts/` and `skills/` from the image. For OpenClaw 2026.8+, keep **`/app/.openclaw/cron`** as a real directory because startup migrations reject a symlink there. If legacy **`/app/.openclaw/workspace/cron/jobs.json`** exists on the volume, copy it into the real cron directory for migration.
+- **Image state:** `/app/.openclaw` contains the immutable packaged configuration and baked workspace.
+- **Runtime state:** `entrypoint.sh` exports `OPENCLAW_STATE_DIR=/app/.openclaw/workspace/.openclaw-state` before starting OpenClaw.
+- **Legacy migration:** An existing `workspace/cron/jobs.json` is copied once into the persistent runtime cron directory. No cron symlink is used.
+- **Upgrade repair:** `openclaw update repair` is disabled by default because startup-time migrations can rewrite production behavior. Set `OPENCLAW_RUN_UPDATE_REPAIR=1` only for a deliberate, observed migration.
 
 **Ways to make cron “permanent”**
 
 | Approach | Behavior |
 |----------|----------|
-| **Workspace volume + startup cron migration (this repo)** | Mount the volume on **`/app/.openclaw/workspace`**. `entrypoint.sh` creates a real **`${OPENCLAW_STATE_DIR}/cron`** directory and copies legacy **`workspace/cron/jobs.json`** into it for OpenClaw's SQLite migration when needed. |
+| **Workspace volume + nested runtime state (this repo)** | Mount the volume on **`/app/.openclaw/workspace`**. `entrypoint.sh` places mutable OpenClaw state at **`workspace/.openclaw-state`**. |
 | **Railway volume on `/app/.openclaw`** | Entire state tree on disk; cron survives without a symlink. Heavier migration if you started with workspace-only. |
 | **Version cron in the image** | Check in a **template** under the repo (e.g. extend `deploy/runtime-template/` or a new `deploy/openclaw-cron/` tree) and **COPY** it in the Dockerfile into `/app/.openclaw/cron/` after the runtime copy. Rebuild on every job change. (Confirm exact filenames with your OpenClaw version.) |
 | **External scheduler** | GitHub Actions `schedule`, Railway’s cron add-on, or another service **POSTs** to your gateway (e.g. wake/hook) on a cadence. No dependency on OpenClaw’s internal `cron list`. |

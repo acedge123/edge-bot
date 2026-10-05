@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
 
-OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-/app/.openclaw}"
-WORKSPACE_DIR="${OPENCLAW_STATE_DIR}/workspace"
-BAKED_WORKSPACE_DIR="${OPENCLAW_STATE_DIR}/workspace.baked"
+IMAGE_STATE_DIR="${OPENCLAW_IMAGE_STATE_DIR:-/app/.openclaw}"
+WORKSPACE_DIR="${OPENCLAW_WORKSPACE:-${IMAGE_STATE_DIR}/workspace}"
+BAKED_WORKSPACE_DIR="${IMAGE_STATE_DIR}/workspace.baked"
+RUNTIME_STATE_DIR="${OPENCLAW_RUNTIME_STATE_DIR:-${WORKSPACE_DIR}/.openclaw-state}"
 
 # AWS Roles Anywhere (optional)
 # If RA_* env vars are provided, configure an AWS profile using credential_process.
@@ -46,94 +47,132 @@ EOF
 }
 
 # If the workspace path is backed by a volume, it can mask the image's workspace.
-# Seed workspace when missing; always sync scripts/ and skills/ from image so redeploys get latest worker and skills.
+# Seed workspace when missing; sync versioned runtime code and policy without
+# overwriting durable identity or user-authored knowledge.
 if [ ! -f "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" ]; then
   echo "[entrypoint] workspace scripts missing; seeding workspace into mounted volume"
   mkdir -p "${WORKSPACE_DIR}"
   cp -a "${BAKED_WORKSPACE_DIR}/." "${WORKSPACE_DIR}/"
 else
-  echo "[entrypoint] syncing workspace/scripts, workspace/skills, workspace/docs, and workspace/.clawhub from image"
-  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills" "${WORKSPACE_DIR}/docs" "${WORKSPACE_DIR}/.clawhub"
+  echo "[entrypoint] syncing runtime code, skills, docs, and policy files from image"
+  mkdir -p "${WORKSPACE_DIR}/scripts" "${WORKSPACE_DIR}/skills" "${WORKSPACE_DIR}/docs"
   cp -a "${BAKED_WORKSPACE_DIR}/scripts/." "${WORKSPACE_DIR}/scripts/"
   cp -a "${BAKED_WORKSPACE_DIR}/skills/." "${WORKSPACE_DIR}/skills/"
-  if [ -d "${BAKED_WORKSPACE_DIR}/.clawhub" ]; then
-    cp -a "${BAKED_WORKSPACE_DIR}/.clawhub/." "${WORKSPACE_DIR}/.clawhub/"
-  fi
   if [ -d "${BAKED_WORKSPACE_DIR}/docs" ]; then
     cp -a "${BAKED_WORKSPACE_DIR}/docs/." "${WORKSPACE_DIR}/docs/"
   fi
+  for policy_file in AGENTS.md CONFIG.md HEARTBEAT.md; do
+    if [ -f "${BAKED_WORKSPACE_DIR}/${policy_file}" ]; then
+      cp "${BAKED_WORKSPACE_DIR}/${policy_file}" "${WORKSPACE_DIR}/${policy_file}"
+    fi
+  done
 fi
 
-# This hosted runtime only needs the reviewed Mom Walk manage command path.
-# Remove local skill folders that can cause OpenClaw to rehydrate browser/search
-# plugin packages requiring interactive capability consent.
-for unused_skill_dir in brave-search agent-browser cursor-agent; do
-  if [ -d "${WORKSPACE_DIR}/skills/${unused_skill_dir}" ]; then
-    rm -rf "${WORKSPACE_DIR}/skills/${unused_skill_dir}"
-    echo "[entrypoint] removed unused hosted skill ${unused_skill_dir}"
+# The volume intentionally preserves user-authored skills across deploys, so
+# image sync does not broadly delete directories. Remove only integrations that
+# have an explicit, reviewed retirement decision and a replacement path.
+if [ -d "${WORKSPACE_DIR}/skills/secure-gmail" ]; then
+  rm -rf "${WORKSPACE_DIR}/skills/secure-gmail"
+  echo "[entrypoint] removed retired secure-gmail/Composio skill"
+fi
+
+# One-time migration: preserve the accumulated memory verbatim, then replace the
+# always-injected root file with a compact index. Detailed facts remain available
+# in the archive and vault, but no longer ride along with every model request.
+MEMORY_COMPACTION_MARKER="${WORKSPACE_DIR}/.memory-context-compacted-v1"
+if [ ! -f "${MEMORY_COMPACTION_MARKER}" ] && [ -f "${BAKED_WORKSPACE_DIR}/MEMORY.compact.md" ]; then
+  mkdir -p "${WORKSPACE_DIR}/vault/archive"
+  if [ -f "${WORKSPACE_DIR}/MEMORY.md" ]; then
+    cp -p "${WORKSPACE_DIR}/MEMORY.md" "${WORKSPACE_DIR}/vault/archive/MEMORY.pre-context-compaction.md"
+    echo "[entrypoint] archived pre-compaction MEMORY.md"
+  fi
+  cp "${BAKED_WORKSPACE_DIR}/MEMORY.compact.md" "${WORKSPACE_DIR}/MEMORY.md"
+  touch "${MEMORY_COMPACTION_MARKER}"
+  echo "[entrypoint] installed compact MEMORY.md index"
+fi
+
+bootstrap_total=0
+for bootstrap_file in AGENTS.md SOUL.md IDENTITY.md USER.md BOOTSTRAP.md MEMORY.md; do
+  if [ -f "${WORKSPACE_DIR}/${bootstrap_file}" ]; then
+    bootstrap_bytes="$(wc -c < "${WORKSPACE_DIR}/${bootstrap_file}" | tr -d ' ')"
+    bootstrap_total=$((bootstrap_total + bootstrap_bytes))
+    echo "[entrypoint] bootstrap candidate ${bootstrap_file}: ${bootstrap_bytes} bytes"
+  fi
+done
+echo "[entrypoint] raw bootstrap candidates: ${bootstrap_total} bytes; configured total cap: 150000 chars"
+
+# Keep mutable OpenClaw state under the Railway-mounted workspace volume. The
+# image remains the source of truth for config, while cron/session SQLite state
+# survives container replacement.
+mkdir -p "${RUNTIME_STATE_DIR}"
+for runtime_file in openclaw.json config.yaml; do
+  if [ -f "${IMAGE_STATE_DIR}/${runtime_file}" ]; then
+    cp "${IMAGE_STATE_DIR}/${runtime_file}" "${RUNTIME_STATE_DIR}/${runtime_file}"
+  fi
+done
+for runtime_dir in agents identity hooks completions devices subagents skills; do
+  if [ -d "${IMAGE_STATE_DIR}/${runtime_dir}" ] && [ ! -e "${RUNTIME_STATE_DIR}/${runtime_dir}" ]; then
+    cp -a "${IMAGE_STATE_DIR}/${runtime_dir}" "${RUNTIME_STATE_DIR}/${runtime_dir}"
   fi
 done
 
-# OpenClaw 2026.8 migrates legacy cron jobs into SQLite during startup and
-# requires ${OPENCLAW_STATE_DIR}/cron to be a real directory, not a symlink.
+export OPENCLAW_STATE_DIR="${RUNTIME_STATE_DIR}"
+export OPENCLAW_WORKSPACE="${WORKSPACE_DIR}"
+
+# OpenClaw 2026.8+ requires cron to be a real directory. Because the entire
+# runtime state now lives on the volume, no symlink or per-boot re-import is
+# needed after the one-time legacy jobs.json seed.
 mkdir -p "${WORKSPACE_DIR}/cron"
-if [ -L "${OPENCLAW_STATE_DIR}/cron" ]; then
-  rm -f "${OPENCLAW_STATE_DIR}/cron"
-fi
 mkdir -p "${OPENCLAW_STATE_DIR}/cron"
-if [ -f "${WORKSPACE_DIR}/cron/jobs.json" ] && \
-   [ ! -f "${OPENCLAW_STATE_DIR}/cron/jobs.json" ] && \
-   [ ! -f "${OPENCLAW_STATE_DIR}/cron/jobs.json.migrated" ]; then
+if [ -f "${WORKSPACE_DIR}/cron/jobs.json" ] && [ ! -f "${OPENCLAW_STATE_DIR}/cron/jobs.json" ]; then
   cp "${WORKSPACE_DIR}/cron/jobs.json" "${OPENCLAW_STATE_DIR}/cron/jobs.json"
-  echo "[entrypoint] copied legacy cron jobs from volume for OpenClaw migration"
-else
-  echo "[entrypoint] cron directory ready: ${OPENCLAW_STATE_DIR}/cron"
+  echo "[entrypoint] seeded legacy cron jobs.json into persistent OpenClaw state"
 fi
+echo "[entrypoint] persistent state: ${OPENCLAW_STATE_DIR}; cron: ${OPENCLAW_STATE_DIR}/cron"
 
 configure_roles_anywhere
 
-# Remove empty plugin project folders left behind by older OpenClaw installs.
-# These stale records can trigger capability-consent repair even though the
-# hosted Mom Walk manage runtime does not use the plugins.
-for stale_plugin_project in \
-  "${OPENCLAW_STATE_DIR}"/npm/projects/openclaw-brave-plugin-* \
-  "${OPENCLAW_STATE_DIR}"/npm/projects/openclaw-codex-*; do
-  [ -d "${stale_plugin_project}" ] || continue
-  if [ -z "$(find "${stale_plugin_project}" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
-    rm -rf "${stale_plugin_project}"
-    echo "[entrypoint] removed empty stale plugin project ${stale_plugin_project}"
-  else
-    echo "[entrypoint] left non-empty plugin project in place: ${stale_plugin_project}"
-  fi
-done
+# Plugin packages persist on the Railway volume. Install an exact compatible
+# version only for a fresh volume; never resolve/download latest on every boot.
+OPENCLAW_PLUGIN_VERSION="${OPENCLAW_PLUGIN_VERSION:-2026.8.2}"
+PLUGIN_PROJECTS_DIR="${OPENCLAW_STATE_DIR}/npm/projects"
 
-# Rebuild the persisted registry from actual plugin manifests. Railway keeps
-# OpenClaw state on a volume, so stale plugin records can survive image updates
-# and block gateway readiness with capability-consent prompts.
-openclaw plugins registry --refresh >/dev/null
-echo "[entrypoint] refreshed OpenClaw plugin registry"
-
-openclaw update repair --yes --no-restart --accept-capabilities >/dev/null
-echo "[entrypoint] OpenClaw update repair passed"
-
-# The OpenAI profile must exist in auth-profiles.json, not only in
-# openclaw.json. Import the Railway-provided key without writing it to logs.
-if [ -n "${OPENAI_API_KEY:-}" ]; then
-  for agent_id in main main-med main-critical; do
-    printf '%s' "${OPENAI_API_KEY}" | openclaw models auth paste-api-key --provider openai --profile-id openai:default --agent "${agent_id}" >/dev/null
+ensure_plugin_package() {
+  package_name="$1"
+  for plugin_dir in "${PLUGIN_PROJECTS_DIR}"/*/node_modules/${package_name}; do
+    if [ -d "${plugin_dir}" ]; then
+      echo "[entrypoint] plugin package present: ${package_name}"
+      return 0
+    fi
   done
-  echo "[entrypoint] imported OPENAI_API_KEY into OpenClaw auth profiles"
-else
-  echo "[entrypoint] OPENAI_API_KEY is not set; OpenAI chat completions will fail" >&2
-fi
 
-# Exec approvals are host-local state. Seed the reviewed binary on every
-# container start so headless Railway sessions do not depend on UI approvals.
-for agent_id in main main-med main-critical; do
-  openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage"
-  openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/survey-hub-manage"
-done
-echo "[entrypoint] allowlisted Mom Walk management binaries for hosted agents"
+  echo "[entrypoint] installing missing plugin package: ${package_name}@${OPENCLAW_PLUGIN_VERSION}"
+  openclaw plugins install "${package_name}@${OPENCLAW_PLUGIN_VERSION}" --accept-capabilities
+}
+
+ensure_plugin_package "@openclaw/codex"
+ensure_plugin_package "@openclaw/brave-plugin"
+if [ "${OPENCLAW_RUN_UPDATE_REPAIR:-0}" = "1" ]; then
+  echo "[entrypoint] running explicitly enabled OpenClaw update repair"
+  openclaw update repair || true
+fi
+echo "[entrypoint] required plugin packages ready"
+
+# Exec approvals share the persistent SQLite state. Seed once per agent-roster
+# version instead of invoking the migration-heavy CLI on every container boot.
+APPROVALS_MARKER="${OPENCLAW_STATE_DIR}/state/.approved-tga-tools-v4"
+if [ ! -f "${APPROVALS_MARKER}" ]; then
+  for agent_id in main main-light main-med main-critical; do
+    openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage" >/dev/null
+    openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/brand-connect-sponsor-ops" >/dev/null
+    openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/survey-hub-manage" >/dev/null
+  done
+  mkdir -p "$(dirname "${APPROVALS_MARKER}")"
+  touch "${APPROVALS_MARKER}"
+  echo "[entrypoint] seeded reviewed TGA tool approvals"
+else
+  echo "[entrypoint] persisted reviewed TGA tool approvals present"
+fi
 
 export PORT="${PORT:-18789}"
 export OPENCLAW_GATEWAY_PORT="${PORT}"
@@ -141,7 +180,7 @@ export OPENCLAW_GATEWAY_PORT="${PORT}"
 # OpenClaw gateway CLI uses --bind (not --host) with a bind mode.
 # For Railway, bind on all interfaces so the service port is reachable.
 # Valid modes include: loopback, lan, tailnet, auto, custom.
-openclaw gateway run --bind lan --port "${PORT}" --allow-unconfigured &
+openclaw gateway --bind lan --port "${PORT}" --allow-unconfigured &
 sleep 5
 
 node "${WORKSPACE_DIR}/scripts/echelon-agent-worker.mjs" &

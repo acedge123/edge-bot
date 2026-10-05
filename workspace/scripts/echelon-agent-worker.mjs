@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Echelon Hosted Agent worker: poll agent-next → chat.send → agent-ack.
+ * Echelon Hosted Agent worker: poll agent-next → /v1/chat/completions → agent-ack.
  * For the Echelon Control /agent UI (agent_jobs table, agent-next/agent-ack edge functions).
  *
  * Env (Railway or ~/.openclaw/.env):
@@ -11,16 +11,21 @@
  *   ECHELON_POLL_MS    - Poll interval when idle (default 2000)
  *   WORKER_ID          - worker_id sent to agent-next (default railway-echelon-worker)
  *   CIA_URL            - Repo C base URL for SMS sending (e.g. https://<project>.supabase.co)
- *   CIA_ANON_KEY       - Repo C anonymous API key
  *   EXECUTOR_SECRET    - Bearer token for Repo C internal-execute endpoint
  *   OPENCLAW_WORKSPACE - Agent workspace root (default /app/.openclaw/workspace). CSV uploads are written under tmp/echelon-uploads/.
  *   After successful Slack/SMS delivery, markers under tmp/echelon-delivery/ prevent duplicate outbound sends on job retry (volume-backed).
+ *   SIGNAL_APPROVAL_SLACK_CHANNEL - Slack channel for approval-required app signals (default C0BVBR6029Y).
+ *   ECHELON_PROCESS_APP_SIGNALS_WITH_LLM - Opt-in for model processing of app signals (default false).
+ *   ECHELON_CIRCUIT_FAILURE_THRESHOLD - Consecutive provider failures before pausing claims (default 2).
+ *   ECHELON_CIRCUIT_OPEN_MS - How long to pause claims after the circuit opens (default 15 minutes).
+ *   ECHELON_AGENT_TIMEOUT_MS - Maximum wait for one agent response (default 3 minutes).
  *
- * SMS jobs: Jobs with metadata.source = "sms" use per-sender session keys and send replies via Repo C.
- * Slack jobs: Jobs with metadata.source = "slack" use per-user session keys and send replies via slack-reply edge function.
+ * SMS jobs use per-sender sessions. Slack jobs use per-thread sessions. Echelon UI jobs use per-actor sessions.
+ * App signal approval jobs: Jobs with metadata.source = "app_signal" and approval markers post to Slack before acking done.
  *
- * Image attachments: Jobs with metadata.attachments (image URLs) use POST /v1/chat/completions on the gateway
- * with multimodal content (text + image_url) instead of chat.send.
+ * All model-backed jobs use POST /v1/chat/completions. The endpoint returns only
+ * after the tool loop completes, so progress commentary cannot be acknowledged
+ * as the final channel response. Bounded session history is stored on the volume.
  *
  * Run alongside openclaw gateway. On Railway, both run in same container.
  */
@@ -29,53 +34,22 @@ import { readFileSync, existsSync } from 'fs';
 import { mkdir, writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { createHash } from 'crypto';
-
-const execFileAsync = promisify(execFile);
-
-/**
- * Model routing for the hosted agent.
- *
- * Control point: route to a specific OpenClaw agent id that is pre-configured with a backing model.
- * - `main`         => gpt-5.4-mini (default)
- * - `main-med`     => gpt-5.4 (code + medium reasoning)
- * - `main-critical`=> gpt-5.4 (security + critical reasoning)
- *
- * Override tags (user text):
- * - @model:gpt-5.4        => main-critical
- * - @model:gpt-5.4-mini   => main
- */
-function pickRoutedAgent(requestText) {
-  const raw = String(requestText || '');
-
-  // Explicit override tag takes precedence.
-  const tag = raw.match(/@model:([a-zA-Z0-9._-]+)/)?.[1]?.toLowerCase();
-  if (tag) {
-    if (tag === 'gpt-5.4') return { agentId: 'main-critical', reason: 'forced:@model:gpt-5.4' };
-    if (tag === 'gpt-5.4-mini' || tag === 'gpt-5.4mini') return { agentId: 'main', reason: 'forced:@model:gpt-5.4-mini' };
-  }
-
-  const text = raw.toLowerCase();
-
-  const isCritical = /\b(threat model|security review|sec review|vulnerability|exploit|authz|authorization|privilege|rbac|secrets?|credential|injection|xss|ssrf|rce|critical|incident)\b/.test(
-    text,
-  );
-  if (isCritical) return { agentId: 'main-critical', reason: 'heuristic:security/critical' };
-
-  const isCode = /\b(code|refactor|implement|bug|fix|typescript|javascript|python|sql|dockerfile|pr review|pull request|diff|lint|tests?)\b/.test(
-    text,
-  );
-  if (isCode) return { agentId: 'main-med', reason: 'heuristic:code' };
-
-  const isMediumReasoning = /\b(design|architecture|trade-?offs|analy[sz]e|root cause|debug|plan)\b/.test(
-    text,
-  );
-  if (isMediumReasoning) return { agentId: 'main-med', reason: 'heuristic:medium-reasoning' };
-
-  return { agentId: 'main', reason: 'default:cheap' };
-}
+import { pickRoutedAgent } from './echelon-model-route.mjs';
+import { answerCapabilityQuery } from './echelon-capability-query.mjs';
+import { buildEchelonSessionKey } from './echelon-session-key.mjs';
+import { deliverSlackReply } from './echelon-slack-delivery.mjs';
+import { buildRepoCLaneAHeaders } from './repo-c-lane-a.mjs';
+import {
+  downloadWorkbookAttachment,
+  isWorkbookAttachment,
+  MAX_WORKBOOK_BYTES,
+} from './echelon-workbook-attachment.mjs';
+import {
+  buildDeterministicAppSignalResponse,
+  isApprovalRequiredSignalJob,
+  shouldBypassAppSignalModel,
+} from './echelon-app-signal-policy.mjs';
 
 function loadOpenClawEnv() {
   const envPath = process.env.OPENCLAW_ENV_FILE || join(homedir(), '.openclaw', '.env');
@@ -104,8 +78,24 @@ const HOOK_TOKEN = (process.env.OPENCLAW_HOOK_TOKEN || process.env.OPENCLAW_GATE
 const GATEWAY_TOKEN = (process.env.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_HOOK_TOKEN || '').trim();
 const POLL_MS = Math.max(1000, parseInt(process.env.ECHELON_POLL_MS || '2000', 10));
 const WORKER_ID = process.env.WORKER_ID || 'railway-echelon-worker';
-const OPENCLAW_BIN = process.env.OPENCLAW_BIN || 'openclaw';
 const WORKSPACE_ROOT = (process.env.OPENCLAW_WORKSPACE || '/app/.openclaw/workspace').replace(/\/+$/, '');
+const SIGNAL_APPROVAL_SLACK_CHANNEL = (
+  process.env.SIGNAL_APPROVAL_SLACK_CHANNEL ||
+  process.env.SLACK_OPS_CHANNEL_ID ||
+  process.env.SLACK_OPS_CHANNEL_NAME ||
+  'C0BVBR6029Y'
+).trim();
+const PROCESS_APP_SIGNALS_WITH_LLM = /^(1|true|yes)$/i.test(
+  String(process.env.ECHELON_PROCESS_APP_SIGNALS_WITH_LLM || '').trim(),
+);
+function positiveIntegerEnv(name, fallback, minimum) {
+  const parsed = Number.parseInt(process.env[name] || String(fallback), 10);
+  return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
+}
+
+const CIRCUIT_FAILURE_THRESHOLD = positiveIntegerEnv('ECHELON_CIRCUIT_FAILURE_THRESHOLD', 2, 1);
+const CIRCUIT_OPEN_MS = positiveIntegerEnv('ECHELON_CIRCUIT_OPEN_MS', 15 * 60 * 1000, 60_000);
+const AGENT_RESPONSE_TIMEOUT_MS = positiveIntegerEnv('ECHELON_AGENT_TIMEOUT_MS', 3 * 60 * 1000, 30_000);
 
 /** Durable idempotency markers (Slack/SMS) — survives restarts when workspace is on a Railway volume. */
 const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery');
@@ -113,6 +103,86 @@ const ECHELON_DELIVERY_DIR = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-delivery
 function safeJobIdForPath(jobId) {
   return String(jobId || 'unknown').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'unknown';
 }
+
+const CIRCUIT_STATE_PATH = () => join(WORKSPACE_ROOT, 'tmp', 'echelon-circuit-breaker.json');
+let consecutiveProviderFailures = 0;
+let circuitOpenUntil = 0;
+let circuitLogUntil = 0;
+
+function readCircuitState() {
+  try {
+    const state = JSON.parse(readFileSync(CIRCUIT_STATE_PATH(), 'utf8'));
+    circuitOpenUntil = Number(state?.openUntil) || 0;
+    consecutiveProviderFailures = Number(state?.consecutiveProviderFailures) || 0;
+  } catch (_) {
+    circuitOpenUntil = 0;
+    consecutiveProviderFailures = 0;
+  }
+}
+
+async function writeCircuitState() {
+  const path = CIRCUIT_STATE_PATH();
+  const tmpPath = `${path}.tmp`;
+  await mkdir(join(WORKSPACE_ROOT, 'tmp'), { recursive: true });
+  await writeFile(
+    tmpPath,
+    JSON.stringify({
+      v: 1,
+      openUntil: circuitOpenUntil,
+      consecutiveProviderFailures,
+      updatedAt: new Date().toISOString(),
+    }),
+    'utf8',
+  );
+  await rename(tmpPath, path);
+}
+
+function isProviderFailure(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('insufficient_quota') ||
+    message.includes('no credits remaining') ||
+    message.includes('upstream provider timeout') ||
+    message.includes('timeout waiting for agent response') ||
+    message.includes('rate limit') ||
+    message.includes('/v1/chat/completions 408') ||
+    message.includes('/v1/chat/completions 429') ||
+    message.includes('stream disconnected before completion')
+  );
+}
+
+async function recordProviderFailure(error) {
+  if (!isProviderFailure(error)) return false;
+
+  consecutiveProviderFailures += 1;
+  if (consecutiveProviderFailures >= CIRCUIT_FAILURE_THRESHOLD) {
+    circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
+    console.error(
+      '[echelon-worker] provider circuit opened after %s consecutive failures; pausing claims until %s',
+      consecutiveProviderFailures,
+      new Date(circuitOpenUntil).toISOString(),
+    );
+  }
+  await writeCircuitState().catch((stateError) =>
+    console.error('[echelon-worker] failed to persist circuit state:', stateError.message),
+  );
+  return true;
+}
+
+async function resetProviderCircuit() {
+  if (consecutiveProviderFailures === 0 && circuitOpenUntil === 0) return;
+  consecutiveProviderFailures = 0;
+  circuitOpenUntil = 0;
+  await writeCircuitState().catch((stateError) =>
+    console.error('[echelon-worker] failed to clear circuit state:', stateError.message),
+  );
+}
+
+function circuitWaitMs() {
+  return Math.max(0, circuitOpenUntil - Date.now());
+}
+
+readCircuitState();
 
 function readDeliveryMarker(kind, jobId) {
   const p = join(ECHELON_DELIVERY_DIR(), `${kind}-${safeJobIdForPath(jobId)}.json`);
@@ -144,7 +214,6 @@ async function writeDeliveryMarker(kind, jobId, extraFields) {
 
 // Repo C env vars for SMS sending
 const CIA_URL = (process.env.CIA_URL || '').replace(/\/+$/, '');
-const CIA_ANON_KEY = (process.env.CIA_ANON_KEY || '').trim();
 const EXECUTOR_SECRET = (process.env.EXECUTOR_SECRET || '').trim();
 
 if (!AGENT_EDGE_KEY) {
@@ -159,8 +228,9 @@ if (checkOnly) {
   console.log('  AGENT_HOSTED_EDGE_KEY:', AGENT_EDGE_KEY ? '***set***' : '(missing)');
   console.log('  GATEWAY_HTTP_URL:', GATEWAY_HTTP_URL);
   console.log('  WORKER_ID:', WORKER_ID);
+  console.log('  SIGNAL_APPROVAL_SLACK_CHANNEL:', SIGNAL_APPROVAL_SLACK_CHANNEL || '(missing)');
+  console.log('  App signal model processing:', PROCESS_APP_SIGNALS_WITH_LLM ? 'enabled' : 'disabled (deterministic)');
   console.log('  CIA_URL:', CIA_URL || '(missing)');
-  console.log('  CIA_ANON_KEY:', CIA_ANON_KEY ? '***set***' : '(missing)');
   console.log('  EXECUTOR_SECRET:', EXECUTOR_SECRET ? '***set***' : '(missing)');
   (async () => {
     try {
@@ -213,14 +283,92 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
 }
 
 /**
- * Call gateway POST /v1/chat/completions with multimodal content (text + attachments).
- * Used when job has metadata.attachments; otherwise we use chat.send + chat.history.
+ * Call gateway POST /v1/chat/completions with multimodal content.
+ * Used only when at least one attachment is a real image; otherwise we use chat.send.
  *
  * Attachment support:
  * - image: content includes { type: "image_url", image_url: { url } }
  * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
-async function gatewayChatCompletionsWithImages({ requestText, attachments, jobId = '' }) {
+function sessionLogPathFor(sessionKey) {
+  const hash = createHash('sha256').update(String(sessionKey)).digest('hex').slice(0, 24);
+  return join(WORKSPACE_ROOT, 'tmp', 'session-history', `${hash}.jsonl`);
+}
+
+function readSessionLog({ sessionKey, maxMessages = 12 }) {
+  try {
+    const raw = readFileSync(sessionLogPathFor(sessionKey), 'utf8');
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .slice(-maxMessages)
+      .flatMap((line) => {
+        try {
+          const item = JSON.parse(line);
+          const role = item?.role;
+          const text = String(item?.text || '').trim();
+          return ['system', 'user', 'assistant'].includes(role) && text ? [{ role, content: text }] : [];
+        } catch (_) {
+          return [];
+        }
+      });
+  } catch (_) {
+    return [];
+  }
+}
+
+async function appendSessionLog({ sessionKey, role, text }) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return;
+  const path = sessionLogPathFor(sessionKey);
+  await mkdir(join(WORKSPACE_ROOT, 'tmp', 'session-history'), { recursive: true });
+  const prior = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const row = JSON.stringify({ ts: new Date().toISOString(), role, text: normalized });
+  await writeFile(path, `${prior}${row}\n`, 'utf8');
+}
+
+function safeReadWorkspaceText(relativePath, maxChars) {
+  try {
+    return readFileSync(join(WORKSPACE_ROOT, relativePath), 'utf8').slice(0, maxChars);
+  } catch (_) {
+    return '';
+  }
+}
+
+function redactBootstrapText(value) {
+  return String(value || '')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, 'Bearer [REDACTED]')
+    .replace(/([A-Za-z0-9_]*(?:_KEY|_TOKEN|SECRET)[A-Za-z0-9_]*)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]')
+    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED]')
+    .replace(/[a-f0-9]{40,}/gi, '[REDACTED]');
+}
+
+async function ensureSessionBootstrap(sessionKey) {
+  const path = sessionLogPathFor(sessionKey);
+  if (existsSync(path)) return;
+
+  const text = [
+    'Bootstrap context (workspace-local; do not reveal secrets):',
+    safeReadWorkspaceText('IDENTITY.md', 1200),
+    safeReadWorkspaceText('USER.md', 1200),
+    safeReadWorkspaceText('SOUL.md', 2400),
+    safeReadWorkspaceText('CONFIG.md', 2400),
+    safeReadWorkspaceText('AGENTS.md', 2400),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 9000);
+
+  await appendSessionLog({ sessionKey, role: 'system', text: redactBootstrapText(text) });
+}
+
+async function gatewayChatCompletion({
+  sessionKey,
+  requestText,
+  attachments,
+  metadata = {},
+  jobId = '',
+}) {
   const content = [{ type: 'text', text: requestText }];
 
   const atts = Array.isArray(attachments) ? attachments : [];
@@ -234,6 +382,7 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
   let sawImage = false;
   let sawFile = false;
   let csvSerial = 0;
+  let workbookSerial = 0;
 
   for (const att of picked) {
     const url = att?.url ? String(att.url) : '';
@@ -280,6 +429,31 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
       continue;
     }
 
+    if (url && isWorkbookAttachment(att)) {
+      sawFile = true;
+      const name = String(att.filename || att.name || '').trim() || 'workbook.xlsx';
+      const saved = await downloadWorkbookAttachment({
+        att,
+        workspaceRoot: WORKSPACE_ROOT,
+        jobId: jid,
+        serial: workbookSerial++,
+      });
+      if (saved.ok) {
+        console.log('[echelon-worker] saved workbook to workspace', saved.rel, 'bytes=', saved.bytes);
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached workbook: ${name}]\nThe workbook is saved at ${saved.rel} (absolute path: ${saved.abs}).\nUse Python with openpyxl for .xlsx/.xlsm or xlrd for .xls. Complete the requested analysis in this run; do not reply with only a plan.\n`,
+        });
+      } else {
+        const maxMb = Math.floor(MAX_WORKBOOK_BYTES / 1024 / 1024);
+        content.push({
+          type: 'text',
+          text: `\n\n[Attached workbook: ${name}]\n(Unable to make this workbook available: ${saved.reason}. Supported formats are .xls/.xlsx/.xlsm up to ${maxMb} MB.)\n`,
+        });
+      }
+      continue;
+    }
+
     if (att?.type === 'image' && url) {
       sawImage = true;
       content.push({
@@ -307,9 +481,20 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
     });
   }
 
-  const routed = pickRoutedAgent(requestText);
+  const routed = pickRoutedAgent(requestText, metadata);
   const model = `openclaw:${routed.agentId}`;
-  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason);
+  console.log(
+    '[echelon-worker] model route (/v1/chat/completions):',
+    model,
+    'reason=',
+    routed.reason,
+    'sessionKey=',
+    sessionKey,
+  );
+
+  await ensureSessionBootstrap(sessionKey);
+  const messages = readSessionLog({ sessionKey, maxMessages: 12 });
+  messages.push({ role: 'user', content });
 
   const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
     method: 'POST',
@@ -321,8 +506,9 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: 'user', content }],
+      messages,
     }),
+    signal: AbortSignal.timeout(AGENT_RESPONSE_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -334,177 +520,7 @@ async function gatewayChatCompletionsWithImages({ requestText, attachments, jobI
   const msg = data?.choices?.[0]?.message;
   const text = msg?.content;
   const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
-  return responseText;
-}
-
-function sessionLogPathFor(sessionKey) {
-  const h = createHash('sha256').update(String(sessionKey)).digest('hex').slice(0, 24);
-  return join(WORKSPACE_ROOT, 'tmp', 'session-history', `${h}.jsonl`);
-}
-
-async function readSessionLog({ sessionKey, maxMessages = 12 }) {
-  try {
-    const p = sessionLogPathFor(sessionKey);
-    if (!existsSync(p)) return [];
-    const raw = readFileSync(p, 'utf8');
-    const lines = raw.split('\n').filter(Boolean);
-    const tail = lines.slice(Math.max(0, lines.length - maxMessages));
-    const msgs = [];
-    for (const line of tail) {
-      try {
-        const obj = JSON.parse(line);
-        const role = obj?.role;
-        const text = obj?.text;
-        if ((role === 'system' || role === 'user' || role === 'assistant') && typeof text === 'string' && text.trim()) {
-          msgs.push({ role, text });
-        }
-      } catch (_) {}
-    }
-    return msgs;
-  } catch (_) {
-    return [];
-  }
-}
-
-async function appendSessionLog({ sessionKey, role, text }) {
-  const t = String(text || '').trim();
-  if (!t) return;
-  const p = sessionLogPathFor(sessionKey);
-  const dir = join(WORKSPACE_ROOT, 'tmp', 'session-history');
-  await mkdir(dir, { recursive: true });
-  const row = JSON.stringify({ ts: new Date().toISOString(), role, text: t });
-  const prior = existsSync(p) ? readFileSync(p, 'utf8') : '';
-  await writeFile(p, prior + row + '\n', 'utf8');
-}
-
-function safeReadWorkspaceText(relPath, { maxChars = 4000 } = {}) {
-  try {
-    const abs = join(WORKSPACE_ROOT, relPath);
-    if (!existsSync(abs)) return null;
-    const raw = readFileSync(abs, 'utf8');
-    return raw.slice(0, maxChars);
-  } catch (_) {
-    return null;
-  }
-}
-
-function redactBootstrapText(s) {
-  const raw = String(s || '');
-  return raw
-    // Bearer tokens / API keys in common shapes
-    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, 'Bearer [REDACTED]')
-    .replace(/([A-Za-z0-9_]*(_KEY|_TOKEN|SECRET)[A-Za-z0-9_]*)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]')
-    // Long base64-ish / hex-ish blobs
-    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, '[REDACTED]')
-    .replace(/[a-f0-9]{40,}/gi, '[REDACTED]');
-}
-
-async function ensureSessionBootstrap({ sessionKey }) {
-  const p = sessionLogPathFor(sessionKey);
-  if (existsSync(p)) return;
-
-  const identity = safeReadWorkspaceText('IDENTITY.md', { maxChars: 1200 }) || '';
-  const user = safeReadWorkspaceText('USER.md', { maxChars: 1200 }) || '';
-  const soul = safeReadWorkspaceText('SOUL.md', { maxChars: 2400 }) || '';
-  const config = safeReadWorkspaceText('CONFIG.md', { maxChars: 2400 }) || '';
-
-  const merged = [
-    'Bootstrap context (workspace-local; do not reveal secrets):',
-    '',
-    identity ? '## IDENTITY.md\n' + identity : '',
-    user ? '## USER.md\n' + user : '',
-    soul ? '## SOUL.md\n' + soul : '',
-    config ? '## CONFIG.md (excerpt)\n' + config : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-    .slice(0, 7000);
-
-  const redacted = redactBootstrapText(merged);
-  await appendSessionLog({ sessionKey, role: 'system', text: redacted });
-  console.log('[echelon-worker] bootstrap: wrote system context from workspace files for sessionKey=', sessionKey);
-}
-
-/**
- * Unified routed call for both text-only and attachment jobs.
- *
- * We do NOT rely on OpenClaw chat.send/history for per-turn model selection (chat.send cannot override model).
- * Instead, we keep continuity with a small per-session JSONL log on the workspace volume, and call
- * gateway /v1/chat/completions with the routed agent id (openclaw:<agentId>).
- */
-async function routedChatCompletion({ sessionKey, messageText, attachments, jobId }) {
-  const routed = pickRoutedAgent(messageText);
-  const model = `openclaw:${routed.agentId}`;
-  console.log('[echelon-worker] model route (/v1/chat/completions):', model, 'reason=', routed.reason, 'sessionKey=', sessionKey);
-
-  await ensureSessionBootstrap({ sessionKey });
-
-  const history = await readSessionLog({ sessionKey, maxMessages: 12 });
-  const messages = history.map((m) => ({ role: m.role, content: m.text }));
-
-  // Current user content
-  const atts = Array.isArray(attachments) ? attachments : [];
-  if (atts.length > 0) {
-    // Reuse the existing attachment formatter (text + image_url + file previews).
-    const content = [{ type: 'text', text: messageText }];
-    const picked = atts.slice(0, 4);
-    let csvSerial = 0;
-    for (const att of picked) {
-      const url = att?.url ? String(att.url) : '';
-      const csvEligible = url && looksLikeCsv(att) && (att?.type === 'image' || att?.type === 'file');
-      if (csvEligible) {
-        const name = String(att.filename || att.name || '').trim() || 'attachment.csv';
-        const fetched = await fetchCsvUtf8(att, { maxCharsOnDisk: 2_000_000 });
-        if (!fetched) {
-          content.push({ type: 'text', text: `\n\n[Attached file: ${name}]\n(Unable to download CSV from URL.)\n` });
-          continue;
-        }
-        const saved = await persistCsvToWorkspace({
-          jobId: String(jobId || '').trim() || `noid-${Date.now()}`,
-          serial: csvSerial++,
-          displayName: name,
-          utf8Text: fetched.text,
-          truncatedByCap: fetched.truncatedByCap,
-        });
-        const preview = fetched.text.slice(0, 80_000);
-        let block = `\n\n[Attached file: ${name}]\n`;
-        if (saved) block += `Full CSV saved at: ${saved.rel}\n`;
-        block += `\n--- preview ---\n${preview}\n--- end preview ---\n`;
-        content.push({ type: 'text', text: block });
-        continue;
-      }
-      if (att?.type === 'image' && url) {
-        content.push({ type: 'image_url', image_url: { url } });
-      }
-    }
-    messages.push({ role: 'user', content });
-  } else {
-    messages.push({ role: 'user', content: messageText });
-  }
-
-  // Persist user message before calling.
-  await appendSessionLog({ sessionKey, role: 'user', text: messageText });
-
-  const res = await fetch(`${GATEWAY_HTTP_URL}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GATEWAY_TOKEN}`,
-      // OpenClaw v2026.3.28+ may require explicit operator scopes on the OpenAI-compatible HTTP surface.
-      // Workaround: request operator scopes explicitly for this call.
-      'x-openclaw-scopes': 'operator.read,operator.write',
-    },
-    body: JSON.stringify({ model, messages }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`/v1/chat/completions ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const msg = data?.choices?.[0]?.message;
-  const text = msg?.content;
-  const responseText = (typeof text === 'string' ? text : (text?.text ?? '')).trim() || 'No response';
-
+  await appendSessionLog({ sessionKey, role: 'user', text: requestText });
   await appendSessionLog({ sessionKey, role: 'assistant', text: responseText });
   return responseText;
 }
@@ -578,21 +594,6 @@ async function persistCsvToWorkspace({ jobId, serial, displayName, utf8Text, tru
   }
 }
 
-/** OpenClaw gateway call (chat.send, chat.history). */
-async function gatewayCall(method, params, { timeoutMs = 60000 } = {}) {
-  const { stdout } = await execFileAsync(OPENCLAW_BIN, [
-    'gateway',
-    'call',
-    method,
-    '--params',
-    JSON.stringify(params),
-    '--timeout',
-    String(timeoutMs),
-    '--json',
-  ], { timeout: timeoutMs + 5000, maxBuffer: 10 * 1024 * 1024 });
-  return JSON.parse(stdout);
-}
-
 /** POST to OpenClaw Gateway /hooks/wake (fallback when gateway call unavailable). */
 async function postWake(text) {
   if (!HOOK_TOKEN) throw new Error('OPENCLAW_HOOK_TOKEN required for /hooks/wake');
@@ -613,18 +614,13 @@ async function postWake(text) {
 
 /** Send SMS reply via Repo C internal-execute endpoint. */
 async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
-  if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
-    throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+  if (!CIA_URL || !EXECUTOR_SECRET) {
+    throw new Error('SMS job requires CIA_URL and EXECUTOR_SECRET env vars');
   }
 
   const res = await fetch(`${CIA_URL}/functions/v1/internal-execute`, {
     method: 'POST',
-    headers: {
-      'apikey': CIA_ANON_KEY,
-      'Authorization': `Bearer ${EXECUTOR_SECRET}`,
-      'X-Tenant-Id': tenantId,
-      'Content-Type': 'application/json',
-    },
+    headers: buildRepoCLaneAHeaders({ executorSecret: EXECUTOR_SECRET, tenantId }),
     body: JSON.stringify({
       service: 'twilio',
       action: 'messages.send',
@@ -641,6 +637,44 @@ async function sendSmsViaRepoC({ tenantId, toNumber, messageText }) {
   }
 
   return res;
+}
+
+async function sendSlackReply({ job, responseText, slackChannel, slackThreadTs = '' }) {
+  const channel = String(slackChannel || '').trim();
+  const threadTs = String(slackThreadTs || '').trim();
+  console.log(
+    '[echelon-worker] job',
+    job.id,
+    'Slack delivery -> channel=%s thread_ts=%s',
+    channel,
+    threadTs || '(none)',
+  );
+
+  const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
+  const result = await deliverSlackReply({
+    jobId: job.id,
+    responseText,
+    slackChannel: channel,
+    slackThreadTs: threadTs,
+    readMarker: () => readDeliveryMarker('slack', job.id),
+    writeMarker: (fields) => writeDeliveryMarker('slack', job.id, fields),
+    postReply: async (payload) => {
+      const replyRes = await fetch(slackReplyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      return { ok: replyRes.ok, status: replyRes.status, body: await replyRes.text() };
+    },
+  });
+  if (result.status === 'duplicate') {
+    console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
+  } else {
+    console.log('[echelon-worker] job', job.id, '-> Slack reply sent (status %s)', result.responseStatus);
+  }
 }
 
 /**
@@ -666,30 +700,39 @@ async function handleJob(job) {
   }
   metadata = metadata || {};
 
-  // Detect job source and use appropriate session keys
+  // Detect job source before deterministic handling and model routing.
   const source = String(metadata.source || '').trim();
-  const isSmsJob = source === 'sms';
-  const isSlackJob = source === 'slack';
 
-  const routed = pickRoutedAgent(message);
+  if (shouldBypassAppSignalModel(metadata, PROCESS_APP_SIGNALS_WITH_LLM)) {
+    console.log('[echelon-worker] job', jobId, 'app_signal bypassed model processing');
+    return buildDeterministicAppSignalResponse({ message, metadata });
+  }
+
+  const capabilityResponse = answerCapabilityQuery(message, (skill) =>
+    existsSync(join(WORKSPACE_ROOT, 'skills', skill, 'SKILL.md')),
+  );
+  if (capabilityResponse) {
+    console.log('[echelon-worker] job', jobId, 'capability query bypassed model processing');
+    return capabilityResponse;
+  }
+
+  const routed = pickRoutedAgent(message, metadata);
   const agentId = routed.agentId;
 
-  let sessionKey;
-  if (isSmsJob) {
-    const fromNumber = String(metadata.from_number || '').trim();
-    if (!fromNumber) {
-      throw new Error('SMS job missing metadata.from_number');
-    }
-    sessionKey = `agent:main:sms:${tenantId}:${fromNumber}`;
-  } else if (isSlackJob) {
-    const slackUser = String(metadata.slack_user || '').trim();
-    if (!slackUser) {
-      throw new Error('Slack job missing metadata.slack_user');
-    }
-    sessionKey = `agent:main:slack:${tenantId}:${slackUser}`;
-  } else {
-    sessionKey = `agent:main:echelon:${tenantId}`;
+  if (source === 'sms' && !String(metadata.from_number || '').trim()) {
+    throw new Error('SMS job missing metadata.from_number');
   }
+  if (source === 'slack' && !String(metadata.slack_user || '').trim()) {
+    throw new Error('Slack job missing metadata.slack_user');
+  }
+  const sessionKey = buildEchelonSessionKey({
+    agentId,
+    tenantId,
+    actorId: job.actor_id || job.actorId,
+    source,
+    metadata,
+    jobId,
+  });
 
   console.log(
     '[echelon-worker] model route decision:',
@@ -699,19 +742,41 @@ async function handleJob(job) {
     'sessionKey=',
     sessionKey,
   );
-  if (agentId !== 'main') {
-    console.log(
-      '[echelon-worker] note: chat.send does not support per-turn model override; escalation applies to attachments (/v1/chat/completions) only unless gateway adds override support.',
-    );
-  }
-
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  return routedChatCompletion({ sessionKey, messageText: message, attachments, jobId });
+  console.log(
+    '[echelon-worker] job',
+    jobId,
+    'using /v1/chat/completions with',
+    attachments.length,
+    'attachment(s)',
+  );
+  return gatewayChatCompletion({ sessionKey, requestText: message, attachments, metadata, jobId });
 }
 
 async function runLoop() {
   while (true) {
     try {
+      const waitMs = circuitWaitMs();
+      if (waitMs > 0) {
+        if (circuitLogUntil !== circuitOpenUntil) {
+          console.warn(
+            '[echelon-worker] provider circuit is open; not claiming jobs until',
+            new Date(circuitOpenUntil).toISOString(),
+          );
+          circuitLogUntil = circuitOpenUntil;
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, 30_000)));
+        continue;
+      }
+      if (circuitOpenUntil > 0) {
+        circuitOpenUntil = 0;
+        circuitLogUntil = 0;
+        console.warn('[echelon-worker] provider circuit half-open; allowing one probe job');
+        await writeCircuitState().catch((stateError) =>
+          console.error('[echelon-worker] failed to persist half-open circuit state:', stateError.message),
+        );
+      }
+
       const job = await claimNextJob();
       if (!job) {
         await new Promise((r) => setTimeout(r, POLL_MS));
@@ -720,6 +785,7 @@ async function runLoop() {
 
       try {
         const responseText = await handleJob(job);
+        await resetProviderCircuit();
 
         // Normalize metadata (Postgres/Supabase may return JSON columns as string)
         let metadata = job.metadata;
@@ -733,7 +799,15 @@ async function runLoop() {
         metadata = metadata || {};
 
         const source = String(metadata.source || '').trim();
-        console.log('[echelon-worker] job', job.id, 'source=%s slack_channel=%s', source || '(none)', metadata.slack_channel || '(none)');
+        const approvalSignalJob = isApprovalRequiredSignalJob(metadata, job.request_text || job.text || '');
+        console.log(
+          '[echelon-worker] job',
+          job.id,
+          'source=%s slack_channel=%s approval_signal=%s',
+          source || '(none)',
+          metadata.slack_channel || '(none)',
+          approvalSignalJob ? 'yes' : 'no',
+        );
 
         // For SMS jobs, send reply via Repo C before acking
         const isSmsJob = source === 'sms';
@@ -744,8 +818,8 @@ async function runLoop() {
             throw new Error('SMS job missing metadata.from_number');
           }
 
-          if (!CIA_URL || !CIA_ANON_KEY || !EXECUTOR_SECRET) {
-            throw new Error('SMS job requires CIA_URL, CIA_ANON_KEY, EXECUTOR_SECRET env vars');
+          if (!CIA_URL || !EXECUTOR_SECRET) {
+            throw new Error('SMS job requires CIA_URL and EXECUTOR_SECRET env vars');
           }
 
           const smsMarker = readDeliveryMarker('sms', job.id);
@@ -767,62 +841,22 @@ async function runLoop() {
         }
 
         const isSlackJob = source === 'slack';
-        if (isSlackJob) {
-          const slackChannel = metadata.slack_channel;
-          const slackThreadTs = metadata.slack_thread_ts;
-          console.log('[echelon-worker] job', job.id, 'Slack job → posting to slack-reply channel=%s thread_ts=%s', slackChannel || '(missing)', slackThreadTs || '(none)');
-          if (slackChannel) {
-            const slackMarker = readDeliveryMarker('slack', job.id);
-            const markerChannel = slackMarker?.slack_channel != null ? String(slackMarker.slack_channel) : '';
-            const markerThread =
-              slackMarker?.slack_thread_ts != null ? String(slackMarker.slack_thread_ts) : '';
-            const sameThread =
-              slackMarker?.v === 1 &&
-              slackMarker.kind === 'slack' &&
-              markerChannel === String(slackChannel) &&
-              markerThread === String(slackThreadTs || '');
-            if (sameThread) {
-              console.log('[echelon-worker] job', job.id, 'Slack delivery already recorded; skipping slack-reply');
-            } else {
-              const slackReplyUrl = `${ECHELON_EDGE_URL}/slack-reply`;
-              const slackReplyBody = {
-                job_id: job.id,
-                text: responseText,
-                slack_channel: slackChannel,
-                slack_thread_ts: slackThreadTs || undefined,
-              };
-              try {
-                const replyRes = await fetch(slackReplyUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
-                  },
-                  body: JSON.stringify(slackReplyBody),
-                });
-                const replyBody = await replyRes.text();
-                if (!replyRes.ok) {
-                  console.error('[echelon-worker] Slack reply failed:', replyRes.status, slackReplyUrl, replyBody.slice(0, 300));
-                  throw new Error(`Slack reply failed: ${replyRes.status} ${replyBody.slice(0, 100)}`);
-                }
-                await writeDeliveryMarker('slack', job.id, {
-                  slack_channel: slackChannel,
-                  slack_thread_ts: slackThreadTs || '',
-                });
-                console.log('[echelon-worker] job', job.id, '→ Slack reply sent (status %s)', replyRes.status);
-              } catch (slackErr) {
-                throw new Error(`Slack reply failed: ${slackErr.message}`);
-              }
-            }
-          } else {
-            console.warn('[echelon-worker] job', job.id, 'Slack job missing slack_channel, skipping reply');
-          }
+        if (isSlackJob || approvalSignalJob) {
+          const slackChannel = String(metadata.slack_channel || '').trim() || (approvalSignalJob ? SIGNAL_APPROVAL_SLACK_CHANNEL : '');
+          const slackThreadTs = String(metadata.slack_thread_ts || '').trim();
+          await sendSlackReply({
+            job,
+            responseText,
+            slackChannel,
+            slackThreadTs,
+          });
         }
 
         await ackJob(job.id, 'done', { responseText });
         console.log('[echelon-worker] job', job.id, '→ done');
       } catch (err) {
         console.error('[echelon-worker] job', job.id, 'error:', err.message);
+        await recordProviderFailure(err);
         await ackJob(job.id, 'failed', { error: err.message }).catch((e) =>
           console.error('[echelon-worker] ack failed:', e.message)
         );

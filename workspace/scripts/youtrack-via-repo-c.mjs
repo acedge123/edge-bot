@@ -6,11 +6,14 @@
  *
  * Env:
  *   CIA_URL            Repo C base URL (e.g. https://rrzewykkwjdkkccwrjyf.supabase.co)
- *   CIA_ANON_KEY       Repo C anon key
  *   EXECUTOR_SECRET    Repo C executor secret (Bearer)
  *   DEFAULT_TENANT_ID  Optional fallback tenant (defaults to "leadscore")
  *
  * Examples:
+ *   node workspace/scripts/youtrack-via-repo-c.mjs issues.get \
+ *     --issueId TGA-293 \
+ *     --tenant-id <tenant-id>
+ *
  *   node workspace/scripts/youtrack-via-repo-c.mjs issues.create \
  *     --projectId 0-97 \
  *     --summary "Test ticket" \
@@ -23,6 +26,7 @@
  *     --tenant-id leadscore
  */
 import process from 'process';
+import { buildRepoCLaneAHeaders } from './repo-c-lane-a.mjs';
 
 function mustEnv(name) {
   const v = String(process.env[name] || '').trim();
@@ -40,6 +44,7 @@ function getArg(flag) {
 
 function usage() {
   console.error(`Usage:
+  youtrack-via-repo-c.mjs issues.get --issueId <key> [--tenant-id <tenant>]
   youtrack-via-repo-c.mjs issues.create --projectId <id> --summary <text> [--description <text>] [--tenant-id <tenant>]
   youtrack-via-repo-c.mjs commands.apply --issueId <key> --query <command> [--tenant-id <tenant>]
 `);
@@ -47,17 +52,11 @@ function usage() {
 
 async function callInternalExecute({ tenantId, service, action, params }) {
   const CIA_URL = mustEnv('CIA_URL').replace(/\/+$/, '');
-  const CIA_ANON_KEY = mustEnv('CIA_ANON_KEY');
   const EXECUTOR_SECRET = mustEnv('EXECUTOR_SECRET');
 
   const res = await fetch(`${CIA_URL}/functions/v1/internal-execute`, {
     method: 'POST',
-    headers: {
-      apikey: CIA_ANON_KEY,
-      Authorization: `Bearer ${EXECUTOR_SECRET}`,
-      'X-Tenant-Id': tenantId,
-      'Content-Type': 'application/json',
-    },
+    headers: buildRepoCLaneAHeaders({ executorSecret: EXECUTOR_SECRET, tenantId }),
     body: JSON.stringify({ service, action, params }),
   });
 
@@ -80,6 +79,22 @@ async function main() {
   }
 
   const tenantId = (getArg('--tenant-id') || process.env.DEFAULT_TENANT_ID || 'leadscore').trim();
+
+  if (cmd === 'issues.get') {
+    const issueId = getArg('--issueId');
+    if (!issueId) {
+      usage();
+      throw new Error('issues.get requires --issueId');
+    }
+    const out = await callInternalExecute({
+      tenantId,
+      service: 'youtrack',
+      action: 'issues.get',
+      params: { issueId },
+    });
+    process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+    return;
+  }
 
   if (cmd === 'issues.create') {
     const projectId = getArg('--projectId');
@@ -124,4 +139,3 @@ main().catch((err) => {
   console.error(err?.stack || String(err));
   process.exit(1);
 });
-

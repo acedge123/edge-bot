@@ -1,4 +1,6 @@
-# Heartbeat checklist
+# Wake and scheduled-job checklist
+
+Recurring OpenClaw heartbeats are intentionally disabled for hosted edge-bot (`every: 0m`) to prevent idle model spend. Do not re-enable them. Event-driven wakes and explicit cron jobs are separate mechanisms.
 
 ## When you are woken (POST /hooks/wake)
 
@@ -15,7 +17,7 @@ The **worker** claims jobs and POSTs the job message to the Gateway at `/hooks/w
 
 If the gateway has a scheduled job (see `openclaw cron list` / `~/.openclaw/cron/` on that host), treat the **job payload** as the instruction set—follow it literally (which skills to use, what to write, what status line to return).
 
-**Hosted Railway:** Cron definitions should live on the workspace volume (see **deploy/RAILWAY_SKILLS_AND_LEARNINGS.md** § OpenClaw gateway cron and `deploy/entrypoint.sh` symlink).
+**Hosted Railway:** Cron definitions live in the persistent OpenClaw state directory at `workspace/.openclaw-state/cron/`. Do not create a recurring heartbeat as a substitute for cron.
 
 When nothing in the payload needs user-visible output, reply `HEARTBEAT_OK` unless the payload says otherwise.
 

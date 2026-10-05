@@ -1,6 +1,6 @@
 ---
 name: openclaw-mem
-version: 2.1.0
+version: 2.2.0
 description: "Session-first memory curator for OpenClaw. Keeps RAM clean, recall precise, and durable knowledge safe."
 ---
 
@@ -20,36 +20,15 @@ It exists for one reason:
 - **Decisions & preferences → `MEMORY.md`**
 - **Daily work → `memory/YYYY-MM-DD.md`**
 - This skill saves durable knowledge **before compaction**
-- Retrieval always happens via `memory_search` → `memory_get`
+- Hosted retrieval uses direct, bounded file reads or Agent Vault; remote embedding search stays disabled
 
 If something matters later, **write it to disk**.
 
 ---
 
-> ⚠️ **CRITICAL REQUIREMENT**
+> **HOSTED COST POLICY**
 >
-> Session memory indexing must be enabled.
-
-## Enable Session Memory
-
-**CLI**
-```bash
-clawdbot config set agents.defaults.memorySearch.experimental.sessionMemory true
-```
-
-**JSON**
-```json
-{
-  "agents": {
-    "defaults": {
-      "memorySearch": {
-        "experimental": { "sessionMemory": true },
-        "sources": ["memory", "sessions"]
-      }
-    }
-  }
-}
-```
+> Do not enable session transcript indexing, remote embeddings, or cross-conversation recall on edge-bot. The hosted config intentionally sets `memory.search.enabled=false`, `provider=none`, and `rememberAcrossConversations=false`. Changing those settings requires the OpenClaw upgrade and cost review in `workspace/docs/OPENCLAW_COST_GUARDRAILS.md`.
 
 ---
 
@@ -60,7 +39,7 @@ OpenClaw memory has **three on-disk layers** in the workspace. **Hosted** edge-b
 ### 1. Session Memory (RAM)
 - Lives in the current conversation
 - Automatically compacted
-- Indexed for retrieval
+- Compactable by OpenClaw, but not separately indexed on hosted edge-bot
 - **Never reliable long-term**
 
 👉 Treat as short-term thinking space.
@@ -158,10 +137,10 @@ Session compaction is lossy. Disk memory is stable.
 
 ## Retrieval Strategy (how agents should recall)
 
-1. Use `memory_search` (max ~6 results)
-2. Pick the best 1–2 hits
-3. Use `memory_get` with line ranges
-4. Inject the minimum text required
+1. On hosted edge-bot, read the smallest relevant range from `MEMORY.md` or a known daily file, or query Agent Vault when configured.
+2. Do not scan every daily file or copy a full transcript into the prompt.
+3. On a non-hosted installation where memory search is deliberately enabled, use at most about six results and retrieve only the best one or two ranges.
+4. Inject the minimum text required.
 
 This keeps context small and precise.
 
@@ -172,6 +151,7 @@ This keeps context small and precise.
 - Prefer disk over RAM
 - Prefer `MEMORY.md` over daily logs for facts (on-disk); on **hosted** agents with Vault configured, prefer **`agent-learnings`** for cross-session durable + structured memory
 - Use search before asking the user again
+- Never change hosted heartbeat or memory-search configuration from an agent turn
 - Never copy raw chat into memory
 - Write memory explicitly, do not assume it sticks
 

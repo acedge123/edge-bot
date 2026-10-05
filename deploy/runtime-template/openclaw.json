@@ -1,1 +1,145 @@
-{"agents":{"ownership":"explicit","defaults":{"workspace":"/app/.openclaw/workspace","systemAgent":{"agentId":"main"},"model":{"primary":"openai/gpt-5.4-mini","fallbacks":[]}},"entries":{"main":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"plugins":{"entries":{"openai":{"enabled":true}}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"},"gateway":{"mode":"local","bind":"lan","controlUi":{"allowedOrigins":["https://edge-bot-production.up.railway.app"]},"http":{"endpoints":{"chatCompletions":{"enabled":true,"images":{"allowUrl":true}}}}}}
+{
+  "agents": {
+    "ownership": "explicit",
+    "defaults": {
+      "workspace": "/app/.openclaw/workspace",
+      "model": {
+        "primary": "openai/gpt-5.6-luna",
+        "fallbacks": ["openai/gpt-5.6-sol"]
+      },
+      "thinkingDefault": "low",
+      "heartbeat": {
+        "every": "0m",
+        "agentId": "main"
+      },
+      "contextInjection": "always",
+      "bootstrapMaxChars": 20000,
+      "bootstrapTotalMaxChars": 150000,
+      "startupContext": {
+        "enabled": true
+      },
+      "contextLimits": {
+        "memoryGetMaxChars": 6000,
+        "postCompactionMaxChars": 1200
+      },
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "5m",
+        "hardClear": {
+          "enabled": true,
+          "placeholder": "[Old tool result removed]"
+        }
+      },
+      "compaction": {
+        "enabled": true,
+        "mode": "safeguard",
+        "thinkingLevel": "low",
+        "keepRecentTokens": 8000,
+        "recentTurnsPreserve": 2,
+        "postIndexSync": "off",
+        "postCompactionSections": [],
+        "maxActiveTranscriptBytes": "1mb",
+        "memoryFlush": {
+          "enabled": false
+        }
+      },
+      "systemAgent": {
+        "agentId": "main"
+      }
+    },
+    "entries": {
+      "main": {
+        "model": "openai/gpt-5.6-luna",
+        "workspace": "/app/.openclaw/workspace"
+      },
+      "main-light": {
+        "model": "openai/gpt-5.6-luna",
+        "workspace": "/app/.openclaw/workspace"
+      },
+      "main-med": {
+        "model": "openai/gpt-5.6-sol",
+        "workspace": "/app/.openclaw/workspace"
+      },
+      "main-critical": {
+        "model": "openai/gpt-5.6-sol",
+        "workspace": "/app/.openclaw/workspace"
+      }
+    }
+  },
+  "memory": {
+    "search": {
+      "enabled": true,
+      "provider": "none",
+      "rememberAcrossConversations": false,
+      "sources": ["memory"]
+    }
+  },
+  "cron": {
+    "enabled": false,
+    "triggers": {
+      "enabled": false
+    }
+  },
+  "skills": {
+    "allowBundled": [],
+    "workshop": {
+      "autonomous": {
+        "mode": "off"
+      }
+    }
+  },
+  "discovery": {
+    "mdns": {
+      "mode": "off"
+    }
+  },
+  "session": {
+    "reset": {
+      "mode": "idle",
+      "idleMinutes": 60
+    }
+  },
+  "tools": {
+    "deny": ["computer", "sessions_spawn", "subagents", "automations", "skill_workshop", "canvas", "image_generate", "music_generate", "video_generate", "tts", "nodes", "node_exec", "node_inference", "mobile_ui", "conversations_*", "sessions_list", "sessions_history", "sessions_search", "sessions_send", "sessions_yield", "agents_list", "progress_card"]
+  },
+  "plugins": {
+    "entries": {
+      "brave": {
+        "enabled": true
+      },
+      "codex": {
+        "enabled": true
+      },
+      "memory-core": {
+        "enabled": true,
+        "config": {
+          "dreaming": {
+            "enabled": false
+          }
+        }
+      }
+    }
+  },
+  "env": {
+    "vars": {}
+  },
+  "hooks": {
+    "enabled": true,
+    "token": "${OPENCLAW_HOOK_TOKEN}"
+  },
+  "gateway": {
+    "controlUi": {
+      "allowedOrigins": ["https://edge-bot-production.up.railway.app"]
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true,
+          "images": {
+            "allowUrl": true
+          }
+        }
+      }
+    }
+  }
+}

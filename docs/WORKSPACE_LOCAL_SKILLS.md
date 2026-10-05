@@ -12,7 +12,7 @@ In the **edge-bot** repo, all workspace-local skills are under:
 
 Each skill has a `SKILL.md` and supporting files, for example:
 
-- `workspace/skills/secure-gmail/` — Gmail via Composio
+- `workspace/skills/gmail-sa/` — Gmail and Google Workspace via the delegated service account
 - `workspace/skills/agent-learnings/` — Agent Vault: learnings + relational memory (entities, relationships, commitments)
 - `workspace/skills/wiki-engine/` — Supabase wiki-engine (sources, pages, `/answer`); reference `workspace/docs/WIKI_*.md` on the image
 - `workspace/skills/ciq-manage-api/` — CIQ Manage API
@@ -100,7 +100,7 @@ OpenClaw loads workspace skills **at gateway/agent startup**. There is no hot-re
   You should see a **`skills/`** directory.
 - List skills:  
   `ls -la /app/.openclaw/workspace/skills/` (container) or `ls -la /root/.openclaw/workspace/skills/` (local).  
-  You should see subdirs like `secure-gmail`, `ciq-manage-api`, `governance-runtime`, etc., each with a **`SKILL.md`**.
+  You should see subdirs like `gmail-sa`, `ciq-manage-api`, `governance-runtime`, etc., each with a **`SKILL.md`**.
 - If OpenClaw provides a CLI:  
   `openclaw skills list`  
   (or similar) and check that workspace skills appear.

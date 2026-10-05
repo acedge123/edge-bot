@@ -11,8 +11,8 @@ FROM node:22.22.3-slim
 ENV OPENCLAW_STATE_DIR=/app/.openclaw
 ENV NODE_ENV=production
 
-# Install git, ca-certificates, jq, curl, python3 (agent tools may run curl/python)
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq curl python3 \
+# Install runtime tools. openpyxl lets the hosted agent inspect Excel uploads without per-job installs.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq curl python3 python3-openpyxl python3-xlrd \
   && rm -rf /var/lib/apt/lists/*
 
 # AWS Roles Anywhere signing helper (for credential_process)
@@ -41,10 +41,13 @@ RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 # Root-owned, policy-constrained client for Mom Walk /manage actions. The agent
 # may execute this binary, but does not receive general shell or curl access.
 COPY tools/mom-walk-manage.mjs /usr/local/lib/edge-bot/mom-walk-manage.mjs
-RUN chmod 755 /usr/local/lib/edge-bot/mom-walk-manage.mjs \
-  && ln -s /usr/local/lib/edge-bot/mom-walk-manage.mjs /usr/local/bin/mom-walk-manage
+COPY tools/brand-connect-sponsor-ops.mjs /usr/local/lib/edge-bot/brand-connect-sponsor-ops.mjs
 COPY tools/survey-hub-manage.mjs /usr/local/lib/edge-bot/survey-hub-manage.mjs
-RUN chmod 755 /usr/local/lib/edge-bot/survey-hub-manage.mjs \
+RUN chmod 755 /usr/local/lib/edge-bot/mom-walk-manage.mjs \
+  && chmod 755 /usr/local/lib/edge-bot/brand-connect-sponsor-ops.mjs \
+  && chmod 755 /usr/local/lib/edge-bot/survey-hub-manage.mjs \
+  && ln -s /usr/local/lib/edge-bot/mom-walk-manage.mjs /usr/local/bin/mom-walk-manage \
+  && ln -s /usr/local/lib/edge-bot/brand-connect-sponsor-ops.mjs /usr/local/bin/brand-connect-sponsor-ops \
   && ln -s /usr/local/lib/edge-bot/survey-hub-manage.mjs /usr/local/bin/survey-hub-manage
 
 # Create runtime directory
@@ -62,15 +65,19 @@ RUN if [ -d /tmp/deploy/runtime ] && [ -n "$(ls -A /tmp/deploy/runtime 2>/dev/nu
 # Railway: Service → Settings → Build → Docker Build Args → CONTROL_UI_ALLOWED_ORIGINS=https://…
 ARG CONTROL_UI_ALLOWED_ORIGINS=https://edge-bot-production.up.railway.app
 
-# Force OpenAI defaults in image (overrides any packaged/template config)
-# Use agents.defaults only (legacy agent.* key removed)
-RUN if [ -f /app/.openclaw/openclaw.json ]; then \
-      jq --arg origin "${CONTROL_UI_ALLOWED_ORIGINS}" \
-      'del(.agent) | .agents.ownership = "explicit" | .agents.defaults.model.primary = "openai/gpt-5.4-mini" | .agents.defaults.model.fallbacks = [] | .agents.defaults.workspace = "/app/.openclaw/workspace" | .agents.defaults.systemAgent.agentId = "main" | .agents.entries = {"main":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"}} | del(.agents.list) | .plugins.entries.openai.enabled = true | del(.plugins.deny) | .hooks.enabled = true | .hooks.token = "${OPENCLAW_HOOK_TOKEN}" | .gateway.mode = "local" | .gateway.bind = "lan" | .gateway.controlUi.allowedOrigins = [$origin] | .gateway.http.endpoints.chatCompletions.enabled = true | .gateway.http.endpoints.chatCompletions.images.allowUrl = true | del(.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback)' /app/.openclaw/openclaw.json > /tmp/oc.json && mv /tmp/oc.json /app/.openclaw/openclaw.json; \
-    else \
-      printf '%s\n' '{"agents":{"ownership":"explicit","defaults":{"workspace":"/app/.openclaw/workspace","systemAgent":{"agentId":"main"},"model":{"primary":"openai/gpt-5.4-mini","fallbacks":[]}},"entries":{"main":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-med":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"},"main-critical":{"model":"openai/gpt-5.4-mini","workspace":"/app/.openclaw/workspace"}}},"auth":{"profiles":{"openai:default":{"provider":"openai","mode":"api_key"}},"order":{"openai":["openai:default"]}},"env":{"vars":{}},"plugins":{"entries":{"openai":{"enabled":true}}},"hooks":{"enabled":true,"token":"${OPENCLAW_HOOK_TOKEN}"},"gateway":{"mode":"local","bind":"lan","controlUi":{"allowedOrigins":["__CONTROL_UI_ALLOWED_ORIGINS__"]},"http":{"endpoints":{"chatCompletions":{"enabled":true,"images":{"allowUrl":true}}}}}}' \
-      | sed "s#__CONTROL_UI_ALLOWED_ORIGINS__#${CONTROL_UI_ALLOWED_ORIGINS}#g" > /app/.openclaw/openclaw.json; \
-    fi
+# Force one reviewed runtime policy over either packaged or template config.
+COPY deploy/apply-runtime-config.jq /tmp/apply-runtime-config.jq
+RUN test -f /app/.openclaw/openclaw.json && \
+    jq --arg origin "${CONTROL_UI_ALLOWED_ORIGINS}" -f /tmp/apply-runtime-config.jq \
+      /app/.openclaw/openclaw.json > /tmp/oc.json && \
+    mv /tmp/oc.json /app/.openclaw/openclaw.json && \
+    rm /tmp/apply-runtime-config.jq
+
+# Fail the image build if an OpenClaw upgrade or config rewrite removes a
+# recovery invariant or reintroduces the context and skill restrictions that
+# caused the 2026-09 incident.
+RUN jq -e '.agents.defaults.heartbeat.every == "0m" and .agents.defaults.thinkingDefault == "low" and .agents.defaults.contextInjection == "always" and .agents.defaults.bootstrapMaxChars == 20000 and .agents.defaults.bootstrapTotalMaxChars == 150000 and .agents.defaults.startupContext.enabled == true and .agents.defaults.contextPruning.mode == "cache-ttl" and .agents.defaults.compaction.keepRecentTokens == 8000 and .agents.defaults.compaction.recentTurnsPreserve == 2 and .agents.defaults.compaction.postIndexSync == "off" and .agents.defaults.compaction.memoryFlush.enabled == false and .session.reset.idleMinutes == 60 and .skills.allowBundled == [] and (.skills | has("limits") | not) and (.agents.entries.main | has("skills") | not) and (.agents.entries["main-med"] | has("skills") | not) and (.tools.deny | index("computer")) != null and (.tools.deny | index("sessions_spawn")) != null and (.tools.deny | index("automations")) != null and .memory.search.enabled == true and .memory.search.provider == "none" and .cron.enabled == false and .cron.triggers.enabled == false and .skills.workshop.autonomous.mode == "off" and .discovery.mdns.mode == "off" and .plugins.entries["memory-core"].enabled == true and .plugins.entries["memory-core"].config.dreaming.enabled == false and .agents.defaults.model.primary == "openai/gpt-5.6-luna" and .agents.entries.main.model == "openai/gpt-5.6-luna" and .agents.entries["main-light"].model == "openai/gpt-5.6-luna" and .agents.entries["main-med"].model == "openai/gpt-5.6-sol" and .agents.entries["main-critical"].model == "openai/gpt-5.6-sol"' /app/.openclaw/openclaw.json >/dev/null
+RUN OPENCLAW_STATE_DIR=/app/.openclaw openclaw config validate
 
 # Copy workspace (CONFIG.md, scripts, skills incl. repo-map, etc.)
 # workspace/skills has highest precedence per OpenClaw; must be present

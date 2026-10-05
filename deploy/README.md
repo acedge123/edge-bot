@@ -4,6 +4,11 @@ Package the OpenClaw gateway + runtime for hosted deployment so Codex (or any ag
 
 **Railway-specific facts (volumes, domains):** keep **[`RAILWAY_RUNTIME.md`](./RAILWAY_RUNTIME.md)** updated; they are not fully captured in `railway.json`.
 
+**TGA custom behavior:** [`TGA_OPENCLAW_WRAPPERS.md`](./TGA_OPENCLAW_WRAPPERS.md)
+is the canonical contract for queue completion, channel delivery, credentials,
+skills, memory, and constrained operational tools. Review it before replacing a
+workspace wrapper with a native OpenClaw integration.
+
 **Control UI / CORS:** the image bakes `gateway.controlUi.allowedOrigins` from the Docker build arg **`CONTROL_UI_ALLOWED_ORIGINS`** (default: current prod Railway URL). For a **new** Railway service, set this build arg to that service’s canonical `https://…` origin so the Control UI loads. Existing prod needs **no** Railway change if you keep the default.
 
 ## What Gets Packaged
@@ -46,7 +51,7 @@ railway link   # or create new project
 railway up
 ```
 
-Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc. For agent git clone/pull of private repos, add `GITHUB_TOKEN` (see **docs/GITHUB_ACCESS_FOR_AGENT.md**).
+Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `AGENT_VAULT_URL`, `AGENT_EDGE_KEY`, `OPENCLAW_HOOK_TOKEN`, etc. GitHub uses the protected owner-aware wrapper: `EDGE_BOT_PERSONAL` for `acedge123/*` and `EDGE_BOT_TOKEN` for `The-Gig-Agency/*`. See **`TGA_OPENCLAW_WRAPPERS.md`** and **`docs/GITHUB_ACCESS_FOR_AGENT.md`** before changing credential names.
 
 **Note:** A redeploy replaces the container; runtime-written files (memory, cloned repos) are lost unless you use a Railway volume or external store (e.g. Agent Vault). See **deploy/RAILWAY_SKILLS_AND_LEARNINGS.md**.
 
@@ -55,21 +60,31 @@ Set env vars in Railway dashboard: `OPENCLAW_GATEWAY_TOKEN`, `OPENAI_API_KEY`, `
 | Variable | Purpose |
 |----------|---------|
 | `OPENCLAW_GATEWAY_TOKEN` | Webhook/auth token (generate: `openssl rand -hex 24`) |
-| `OPENAI_API_KEY` | OpenAI API key (image default: `openai/gpt-5.4-mini`; no configured fallbacks — see `deploy/Dockerfile`) |
+| `OPENAI_API_KEY` | OpenAI API key. Ordinary work routes to `gpt-5.6-luna`; code, debugging, architecture, and critical work route to `gpt-5.6-sol`. |
 | `ANTHROPIC_API_KEY` | Claude API key; only if you override to use Claude |
 | `OPENROUTER_API_KEY` | Optional; if using OpenRouter |
 | `AGENT_VAULT_URL` | Supabase Edge Functions base (for jobs worker) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault |
 | `OPENCLAW_HOOK_TOKEN` | **Must differ from** `OPENCLAW_GATEWAY_TOKEN`. Used for /hooks/wake. Generate: `openssl rand -hex 24` |
 | `ECHELON_EDGE_URL` | Base URL for Echelon agent-next/agent-ack (default: `https://your-project.supabase.co/functions/v1`) |
+| `ECHELON_CIRCUIT_FAILURE_THRESHOLD` | Optional. Consecutive provider failures before the worker stops claiming jobs; default `2`. |
+| `ECHELON_CIRCUIT_OPEN_MS` | Optional. Provider-failure claim pause; default `900000` (15 minutes). |
+| `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` | Optional explicit opt-in. Unset/false keeps automated app signals deterministic and zero-LLM. |
+| `OPENCLAW_RUN_UPDATE_REPAIR` | Optional migration switch. Leave unset/`0`; use `1` only during an explicitly reviewed upgrade. |
 | `GOOGLE_MAPS_API_KEY` | Optional. Google **Places API (New)** for venue search/details (sponsors enrichment). Enable Places API (New) in Google Cloud. See `workspace/skills/google-places/SKILL.md`. |
 | `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Must match the Mom Walk Supabase `AGENT_MINT_SECRET`. |
 | `MOM_WALK_FUNCTIONS_URL` | Optional. Defaults to the production Mom Walk Supabase functions URL. Override only for an intentional environment change. |
 | `MOM_WALK_SUPABASE_ANON_KEY` | Optional publishable/anon key forwarded as `apikey`. The short-lived service-account JWT remains the authorization credential. |
 | `SURVEY_HUB_MANAGE_SECRET` | Required for the `survey-hub-manage` tool. Must match Client Survey Hub Supabase `MANAGE_API_SECRET`. Do not use service-role keys in Railway. |
 | `SURVEY_HUB_FUNCTIONS_URL` | Optional. Defaults to the production Client Survey Hub Supabase functions URL. |
+| `AGENT_API_BASE` | Portfolio Research Lab API base: `https://vqucicshrmzjlsxzqylx.supabase.co/functions/v1/agent-api/v1`. |
+| `PORTFOLIO_AGENT_API_KEY` | Required write-capable key for the paper-only Portfolio Research Lab API; sent as `x-agent-api-key`. |
 
 **Echelon Hosted Agent:** The worker (`echelon-agent-worker.mjs`) runs alongside the gateway and polls `agent-next`, sends jobs to the agent via chat, and acks via `agent-ack`. Requires `AGENT_HOSTED_EDGE_KEY` (same as Echelon backend secrets).
+
+Before changing the OpenClaw version or runtime config, follow [`OPENCLAW_UPGRADE_POLICY.md`](./OPENCLAW_UPGRADE_POLICY.md). The cost controls are production invariants, not optional tuning.
+
+Run `./deploy/verify-cost-controls.sh` before every image build or deploy.
 
 Add any other keys from your `~/.openclaw/.env` as needed.
 
