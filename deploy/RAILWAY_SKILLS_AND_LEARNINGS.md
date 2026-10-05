@@ -13,6 +13,11 @@ Add these to Railway so the agent can access external services:
 | `AGENT_VAULT_URL` | Supabase Edge Function URL for agent-vault (e.g. `https://<project>.supabase.co/functions/v1/agent-vault`) |
 | `AGENT_EDGE_KEY` | Bearer token for agent-vault (learnings, contacts, tasks). Same value as in Supabase secrets. |
 | `platform_key` | Platform/tenant API key for CIQ Manage API (from signup/onboarding, e.g. `ciq_xxx`). The manage router fetches CIQ credentials server-side — do not use raw CreatorIQ API key. |
+| `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Exchanges for a short-lived Mom Walk admin JWT. |
+| `MOM_WALK_SUPABASE_ANON_KEY` | Optional but recommended for Mom Walk Edge Function calls. |
+| `MOM_WALK_FUNCTIONS_URL` | Optional override for Mom Walk functions; defaults to production. |
+| `SURVEY_HUB_MANAGE_SECRET` | Required for the `survey-hub-manage` tool. Must match Client Survey Hub `MANAGE_API_SECRET`; do not use service-role keys in Railway. |
+| `SURVEY_HUB_FUNCTIONS_URL` | Optional override for Client Survey Hub functions; defaults to production. |
 | `GITHUB_TOKEN` | Optional. GitHub PAT (or machine-user token) with read access to repos the agent should clone/pull. See **docs/GITHUB_ACCESS_FOR_AGENT.md**. |
 | `GOOGLE_MAPS_API_KEY` | Optional. **Places API (New)** for **`google-places`** / **`sponsors-database`** skills (venue search, sponsor enrichment). |
 
@@ -24,6 +29,8 @@ Add these to Railway so the agent can access external services:
 
 - `agent-learnings` — posts learnings to Agent Vault (needs AGENT_VAULT_URL, AGENT_EDGE_KEY)
 - `ciq-manage-api` — CIQ Manage API reference (needs platform_key)
+- `mom-walk-manage` — Mom Walk reviewed admin actions, survey wrapper publishing, and survey solicitation deployment.
+- `survey-hub-manage` — Client Survey Hub brand/survey/question/response management.
 - `agentic-control-plane`, `echelon-signup`, `leadscoring` — etc.
 
 These are copied by the Dockerfile. No extra steps unless you add new skills.
@@ -60,6 +67,8 @@ No need to copy files — learnings are already in Supabase.
 | AGENT_VAULT_URL | Set in Railway (your agent-vault Supabase URL) |
 | AGENT_EDGE_KEY | Set in Railway (same as Supabase agent-vault secret) |
 | platform_key | Set in Railway (platform key from signup/onboarding) |
+| MOM_WALK_AGENT_MINT_SECRET | Set in Railway; must match Mom Walk Supabase `AGENT_MINT_SECRET` |
+| SURVEY_HUB_MANAGE_SECRET | Set in Railway; must match Client Survey Hub Supabase `MANAGE_API_SECRET` |
 | Learnings | Already in Supabase — agent queries via agent-learnings |
 | Skills | Already in repo — deploy automatically |
 | CIQ how-to | Add `workspace/docs/CIQ_LEARNINGS.md` if you want extra context |

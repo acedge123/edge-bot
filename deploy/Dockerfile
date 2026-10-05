@@ -43,6 +43,9 @@ RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 COPY tools/mom-walk-manage.mjs /usr/local/lib/edge-bot/mom-walk-manage.mjs
 RUN chmod 755 /usr/local/lib/edge-bot/mom-walk-manage.mjs \
   && ln -s /usr/local/lib/edge-bot/mom-walk-manage.mjs /usr/local/bin/mom-walk-manage
+COPY tools/survey-hub-manage.mjs /usr/local/lib/edge-bot/survey-hub-manage.mjs
+RUN chmod 755 /usr/local/lib/edge-bot/survey-hub-manage.mjs \
+  && ln -s /usr/local/lib/edge-bot/survey-hub-manage.mjs /usr/local/bin/survey-hub-manage
 
 # Create runtime directory
 RUN mkdir -p /app/.openclaw

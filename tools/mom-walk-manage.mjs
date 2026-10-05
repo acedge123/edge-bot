@@ -38,6 +38,138 @@ function validateFindUser(input) {
   return { query, limit };
 }
 
+function validateList(input, options = {}) {
+  const params = assertObject(input, "params");
+  const allowed = ["limit", "offset", ...(options.extraAllowed ?? [])];
+  rejectUnknown(params, allowed);
+  const limit = params.limit === undefined ? options.defaultLimit ?? 50 : Number(params.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > (options.maxLimit ?? 100)) {
+    throw new UsageError(`limit must be an integer from 1 to ${options.maxLimit ?? 100}.`);
+  }
+  const offset = params.offset === undefined ? 0 : Number(params.offset);
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new UsageError("offset must be a non-negative integer.");
+  }
+  return { ...params, limit, offset };
+}
+
+function validateSurveyLookup(input) {
+  const params = assertObject(input, "params");
+  rejectUnknown(params, ["id", "slug"]);
+  const id = typeof params.id === "string" ? params.id.trim() : "";
+  const slug = typeof params.slug === "string" ? params.slug.trim() : "";
+  if ((!id && !slug) || (id && slug)) {
+    throw new UsageError("Provide exactly one of id or slug.");
+  }
+  if (id && !UUID_PATTERN.test(id)) throw new UsageError("id must be a UUID.");
+  return id ? { id } : { slug };
+}
+
+function validateSurveyPayload(input, options = {}) {
+  const params = assertObject(input, "params");
+  const allowed = [
+    "id",
+    "name",
+    "slug",
+    "description",
+    "survey_url",
+    "external_survey_id",
+    "brand_id",
+    "event_id",
+    "is_active",
+    "is_featured",
+  ];
+  rejectUnknown(params, allowed);
+  if (options.requiresId) {
+    const id = typeof params.id === "string" ? params.id.trim() : "";
+    if (!UUID_PATTERN.test(id)) throw new UsageError("id must be a UUID.");
+  }
+  if (options.create) {
+    for (const key of ["name", "slug", "survey_url"]) {
+      if (typeof params[key] !== "string" || !params[key].trim()) {
+        throw new UsageError(`${key} is required.`);
+      }
+    }
+  }
+  for (const key of ["brand_id", "event_id"]) {
+    if (params[key] !== undefined && params[key] !== null && params[key] !== "") {
+      if (typeof params[key] !== "string" || !UUID_PATTERN.test(params[key])) {
+        throw new UsageError(`${key} must be a UUID.`);
+      }
+    }
+  }
+  if (typeof params.survey_url === "string") {
+    try {
+      new URL(params.survey_url);
+    } catch {
+      throw new UsageError("survey_url must be a valid URL.");
+    }
+  }
+  const normalized = { ...params };
+  for (const key of ["id", "name", "slug", "description", "survey_url", "external_survey_id", "brand_id", "event_id"]) {
+    if (typeof normalized[key] === "string") normalized[key] = normalized[key].trim();
+  }
+  return normalized;
+}
+
+function validateDeleteById(input, confirmation) {
+  const params = assertObject(input, "params");
+  rejectUnknown(params, ["id"]);
+  const id = typeof params.id === "string" ? params.id.trim() : "";
+  if (!UUID_PATTERN.test(id)) throw new UsageError("id must be a UUID.");
+  if (normalizeTarget(confirmation) !== normalizeTarget(id)) {
+    throw new UsageError("--confirm-target must exactly match the id being deleted.");
+  }
+  return { id };
+}
+
+function validateEmailTemplates(input) {
+  const params = assertObject(input, "params");
+  rejectUnknown(params, []);
+  return params;
+}
+
+function validateCommunityMembers(input) {
+  const params = assertObject(input, "params");
+  rejectUnknown(params, ["community_id"]);
+  const communityId = typeof params.community_id === "string" ? params.community_id.trim() : "";
+  if (!UUID_PATTERN.test(communityId)) throw new UsageError("community_id must be a UUID.");
+  return { community_id: communityId };
+}
+
+function validateSurveyDeploy(input, confirmation) {
+  const params = assertObject(input, "params");
+  rejectUnknown(params, ["surveyId", "templateId", "recipients"]);
+  if (typeof params.surveyId !== "string" || !UUID_PATTERN.test(params.surveyId)) {
+    throw new UsageError("surveyId must be a UUID.");
+  }
+  if (typeof params.templateId !== "string" || !UUID_PATTERN.test(params.templateId)) {
+    throw new UsageError("templateId must be a UUID.");
+  }
+  if (!Array.isArray(params.recipients) || params.recipients.length < 1 || params.recipients.length > 500) {
+    throw new UsageError("recipients must contain 1-500 recipients.");
+  }
+  const recipients = params.recipients.map((recipient, index) => {
+    assertObject(recipient, `recipients[${index}]`);
+    rejectUnknown(recipient, ["userId", "email", "name"]);
+    if (typeof recipient.userId !== "string" || !UUID_PATTERN.test(recipient.userId)) {
+      throw new UsageError(`recipients[${index}].userId must be a UUID.`);
+    }
+    const email = normalizeTarget(recipient.email);
+    if (!EMAIL_PATTERN.test(email)) {
+      throw new UsageError(`recipients[${index}].email is invalid.`);
+    }
+    const name = typeof recipient.name === "string" && recipient.name.trim()
+      ? recipient.name.trim()
+      : "there";
+    return { userId: recipient.userId.trim(), email, name };
+  });
+  if (normalizeTarget(confirmation) !== normalizeTarget(params.surveyId)) {
+    throw new UsageError("--confirm-target must exactly match the surveyId being deployed.");
+  }
+  return { surveyId: params.surveyId.trim(), templateId: params.templateId.trim(), recipients };
+}
+
 function normalizeTarget(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -67,6 +199,65 @@ function validateResetUserPassword(input, confirmation) {
 }
 
 export const ACTIONS = Object.freeze({
+  "surveys.list": {
+    resource: "surveys",
+    action: "list",
+    risk: "read",
+    validate: (params) => validateList(params, { extraAllowed: ["active_only"], defaultLimit: 25 }),
+  },
+  "surveys.get": {
+    resource: "surveys",
+    action: "get",
+    risk: "read",
+    validate: (params) => validateSurveyLookup(params),
+  },
+  "surveys.create": {
+    resource: "surveys",
+    action: "create",
+    risk: "write",
+    validate: (params) => validateSurveyPayload(params, { create: true }),
+  },
+  "surveys.update": {
+    resource: "surveys",
+    action: "update",
+    risk: "write",
+    validate: (params) => validateSurveyPayload(params, { requiresId: true }),
+  },
+  "surveys.delete": {
+    resource: "surveys",
+    action: "delete",
+    risk: "destructive",
+    validate: (params, options) => validateDeleteById(params, options.confirmTarget),
+  },
+  "survey.deploy-recipients": {
+    endpoint: "send-survey-solicitation",
+    risk: "external-send",
+    validate: (params, options) => validateSurveyDeploy(params, options.confirmTarget),
+  },
+  "admin.list-email-templates": {
+    resource: "admin",
+    action: "list-email-templates",
+    risk: "read",
+    validate: (params) => validateEmailTemplates(params),
+  },
+  "admin.list-users": {
+    resource: "admin",
+    action: "list-users",
+    risk: "read",
+    validate: (params) => validateList(params, { defaultLimit: 50, maxLimit: 200 }),
+  },
+  "communities.list": {
+    resource: "communities",
+    action: "list",
+    risk: "read",
+    validate: (params) => validateList(params, { extraAllowed: ["active_only"], defaultLimit: 50 }),
+  },
+  "communities.list-members": {
+    resource: "communities",
+    action: "list-members",
+    risk: "read",
+    validate: (params) => validateCommunityMembers(params),
+  },
   "admin.find-user": {
     resource: "admin",
     action: "find-user",
@@ -179,18 +370,23 @@ export async function executeAction(
     throw new Error("Token minting returned no access token.");
   }
 
+  const targetFunction = definition.endpoint ?? "manage";
+  const requestBody = definition.endpoint
+    ? validatedParams
+    : {
+        resource: definition.resource,
+        action: definition.action,
+        params: validatedParams,
+      };
+
   const managePayload = await readJson(
-    await fetchImpl(`${functionsUrl}/manage`, {
+    await fetchImpl(`${functionsUrl}/${targetFunction}`, {
       method: "POST",
       headers: {
         ...commonHeaders,
         Authorization: `Bearer ${mintPayload.access_token}`,
       },
-      body: JSON.stringify({
-        resource: definition.resource,
-        action: definition.action,
-        params: validatedParams,
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(30_000),
     }),
     "Mom Walk manage request failed",
