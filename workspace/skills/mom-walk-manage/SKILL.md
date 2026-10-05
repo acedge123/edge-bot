@@ -21,6 +21,62 @@ List the reviewed registry:
 mom-walk-manage list-actions
 ```
 
+## Survey publishing and deployment
+
+Mom Walk does not author survey questions. The actual survey is authored in TGA
+Surveys / Client Survey Hub, then Mom Walk stores a public wrapper row in its
+`surveys` table. That wrapper renders at:
+
+```text
+https://www.themomwalkcollective.app/survey/<slug>
+```
+
+The wrapper iframe loads the external survey URL stored as `survey_url`, normally:
+
+```text
+https://tmwc.tgasurveys.com/s/<slug>/take
+```
+
+Create or update that wrapper through `mom-walk-manage`, not direct Supabase SQL:
+
+```bash
+mom-walk-manage surveys.create \
+  --params-json '{"name":"Brand Feedback","slug":"brand-feedback","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","external_survey_id":"<survey-hub-id>","is_active":true}'
+```
+
+```bash
+mom-walk-manage surveys.update \
+  --params-json '{"id":"<mom-walk-survey-id>","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","is_active":true}'
+```
+
+Soft-delete / unpublish a wrapper by confirming the exact Mom Walk survey id:
+
+```bash
+mom-walk-manage surveys.delete \
+  --params-json '{"id":"<mom-walk-survey-id>"}' \
+  --confirm-target '<mom-walk-survey-id>'
+```
+
+Deploy means sending the survey solicitation email. First resolve an active
+`survey_solicitation` template:
+
+```bash
+mom-walk-manage admin.list-email-templates --params-json '{}'
+```
+
+Then deploy to explicit recipients only after confirming the survey id. Each
+recipient must include `userId`, `email`, and `name`; resolve users from admin
+lookup/list calls or from community membership before sending.
+
+```bash
+mom-walk-manage survey.deploy-recipients \
+  --params-json '{"surveyId":"<mom-walk-survey-id>","templateId":"<template-id>","recipients":[{"userId":"<user-id>","email":"mom@example.com","name":"Alex"}]}' \
+  --confirm-target '<mom-walk-survey-id>'
+```
+
+This calls Mom Walk's existing `send-survey-solicitation` function, which handles
+suppression, email logs, and `survey_responses.email_sent_at` tracking.
+
 Find a user before any password reset:
 
 ```bash
