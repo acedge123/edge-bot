@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_FUNCTIONS_URL =
@@ -296,7 +297,7 @@ export async function executeAction(
   const env = dependencies.env ?? process.env;
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const secret = env.SURVEY_HUB_MANAGE_SECRET?.trim() || env.MANAGE_API_SECRET?.trim();
-  if (!secret) throw new Error("SURVEY_HUB_MANAGE_SECRET is not configured.");
+  if (!secret) throw new Error("MANAGE_API_SECRET (or SURVEY_HUB_MANAGE_SECRET) is not configured.");
 
   const functionsUrl = (env.SURVEY_HUB_FUNCTIONS_URL || DEFAULT_FUNCTIONS_URL)
     .trim()
@@ -332,7 +333,7 @@ async function main(argv) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
+const invokedPath = process.argv[1] ? pathToFileURL(realpathSync(process.argv[1])).href : "";
 if (import.meta.url === invokedPath) {
   main(process.argv.slice(2)).catch((error) => {
     const isUsage = error instanceof UsageError;

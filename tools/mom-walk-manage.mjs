@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_FUNCTIONS_URL =
@@ -417,7 +418,7 @@ async function main(argv) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
+const invokedPath = process.argv[1] ? pathToFileURL(realpathSync(process.argv[1])).href : "";
 if (import.meta.url === invokedPath) {
   main(process.argv.slice(2)).catch((error) => {
     const isUsage = error instanceof UsageError;

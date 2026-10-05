@@ -5,15 +5,22 @@ metadata:
   openclaw:
     requires:
       bins: [survey-hub-manage]
-      env: [SURVEY_HUB_MANAGE_SECRET]
 ---
 
 # Survey Hub Manage
 
 Use the root-owned `survey-hub-manage` executable. Never recreate this flow with
 `bash`, `curl`, `jq`, or a hand-built HTTP request. The Railway agent receives
-only `SURVEY_HUB_MANAGE_SECRET`; the Supabase service-role key stays inside the
-Client Survey Hub Edge Function.
+`MANAGE_API_SECRET`, matching the Client Survey Hub Edge Function. The optional
+`SURVEY_HUB_MANAGE_SECRET` alias is also accepted and takes precedence when set.
+The executable checks credentials at request time; do not infer an authentication
+failure from an absent alias. Never print either secret. The Supabase service-role
+key stays inside the Client Survey Hub Edge Function.
+
+Mom Walk publishing uses its separate `MOM_WALK_AGENT_MINT_SECRET` to mint a
+short-lived agent token. Do not substitute the Survey Hub secret for that token
+minting credential. Run a read-only action to verify each tool and report its
+actual output or error; an empty terminal result is not proof of failed auth.
 
 List the reviewed registry:
 
