@@ -10,6 +10,34 @@ const UUID_PATTERN =
 
 export class UsageError extends Error {}
 
+const BRAND_SELECTORS = ["brandId", "brandSlug", "clientId", "clientSlug", "subdomain", "name"];
+const SURVEY_SELECTORS = ["id", "surveyId", "surveySlug", "slug", ...BRAND_SELECTORS];
+
+function validateSurveyWrite(input, create = false) {
+  const params = cleanParams(input, [...(create ? ["id", "slug", ...BRAND_SELECTORS] : SURVEY_SELECTORS), "updates"]);
+  const updates = assertObject(params.updates, "updates");
+  if (create) {
+    if (typeof updates.title !== "string" || !updates.title.trim()) {
+      throw new UsageError("updates.title is required.");
+    }
+    if (updates.status !== undefined && updates.status !== "draft") {
+      throw new UsageError("Create surveys as draft; use survey.publish after approval.");
+    }
+    return { ...params, updates: { ...updates, title: updates.title.trim(), status: "draft" } };
+  }
+  if (Object.hasOwn(updates, "status")) {
+    throw new UsageError("Use survey.publish or survey.unpublish to change status.");
+  }
+  return params;
+}
+
+function validateSurveyTransition(input, options) {
+  const params = cleanParams(input, SURVEY_SELECTORS);
+  const confirmed = validateDelete(params, options.confirmTarget, ["surveyId", "id", "surveySlug", "slug"]);
+  const { confirm, ...target } = confirmed;
+  return target;
+}
+
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new UsageError(`${label} must be a JSON object.`);
@@ -160,6 +188,29 @@ export const ACTIONS = Object.freeze({
         "subdomain",
         "name",
       ]),
+  },
+  "survey.create": {
+    risk: "write",
+    validate: (params) => validateSurveyWrite(params, true),
+  },
+  "survey.update": {
+    risk: "write",
+    validate: (params) => validateSurveyWrite(params),
+  },
+  "survey.publish": {
+    risk: "publish",
+    validate: validateSurveyTransition,
+  },
+  "survey.unpublish": {
+    risk: "write",
+    validate: (params) => cleanParams(params, SURVEY_SELECTORS),
+  },
+  "survey.delete": {
+    risk: "destructive",
+    validate: (params, options) => validateDelete(
+      cleanParams(params, SURVEY_SELECTORS), options.confirmTarget,
+      ["surveyId", "id", "surveySlug", "slug"],
+    ),
   },
   "questions.list": {
     risk: "read",

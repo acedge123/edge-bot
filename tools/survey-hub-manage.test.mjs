@@ -24,6 +24,11 @@ test("registry exposes reviewed survey hub actions", () => {
     "brand.delete",
     "survey.list",
     "survey.lookup",
+    "survey.create",
+    "survey.update",
+    "survey.publish",
+    "survey.unpublish",
+    "survey.delete",
     "questions.list",
     "question.create",
     "question.update",
@@ -37,6 +42,47 @@ test("registry exposes reviewed survey hub actions", () => {
     "answer.upsert",
     "answer.delete",
   ]);
+});
+
+test("survey lifecycle actions send the documented API payloads", async () => {
+  const surveyId = "11111111-1111-4111-8111-111111111111";
+  const cases = [
+    ["survey.create", { brandSlug: "tmwc", updates: { title: "Draft survey" } }, {},
+      { brandSlug: "tmwc", updates: { title: "Draft survey", status: "draft" } }],
+    ["survey.update", { surveyId, updates: { title: "Updated survey" } }, {},
+      { surveyId, updates: { title: "Updated survey" } }],
+    ["survey.publish", { surveyId }, { confirmTarget: surveyId }, { surveyId }],
+    ["survey.unpublish", { surveyId }, {}, { surveyId }],
+    ["survey.delete", { surveyId }, { confirmTarget: surveyId }, { surveyId, confirm: true }],
+  ];
+  for (const [action, params, options, expected] of cases) {
+    let request;
+    await executeAction(action, params, options, {
+      env: { MANAGE_API_SECRET: "manage-secret" },
+      fetchImpl: async (_url, init) => {
+        request = JSON.parse(init.body);
+        return jsonResponse({ success: true });
+      },
+    });
+    assert.deepEqual(request, { action, ...expected });
+  }
+});
+
+test("publish and delete require exact confirmation before any API request", async () => {
+  for (const action of ["survey.publish", "survey.delete"]) {
+    await assert.rejects(() => executeAction(action,
+      { surveyId: "11111111-1111-4111-8111-111111111111" }, {}, {
+        env: { MANAGE_API_SECRET: "manage-secret" },
+        fetchImpl: async () => assert.fail("unconfirmed action must not reach API"),
+      }), /confirm-target/);
+  }
+});
+
+test("survey writes cannot bypass the publish action", () => {
+  assert.throws(() => ACTIONS["survey.create"].validate({ brandSlug: "tmwc",
+    updates: { title: "Survey", status: "published" } }), /survey.publish/);
+  assert.throws(() => ACTIONS["survey.update"].validate({ surveyId: "survey",
+    updates: { status: "published" } }), /survey.publish/);
 });
 
 test("CLI parser requires valid JSON", () => {

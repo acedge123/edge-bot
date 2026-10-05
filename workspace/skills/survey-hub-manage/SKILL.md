@@ -31,9 +31,51 @@ survey-hub-manage list-actions
 ## Authoring Flow
 
 1. Resolve the brand/client.
-2. Resolve or create the survey in Client Survey Hub.
+2. Resolve or create the survey in Client Survey Hub as a draft.
 3. Add, update, delete, or reorder questions.
-4. Publish/deploy in Mom Walk with the `mom-walk-manage` skill.
+4. Prepare an inactive Mom Walk wrapper with the `mom-walk-manage` skill.
+5. Show the survey content, slug, wrapper URL, email template, and intended
+   recipients to the requesting admin for review. Wait for explicit approval
+   before publishing or activating either survey. Sending invitations requires
+   separate explicit approval of the recipients and email content.
+
+Create a survey (the managed client defaults to and enforces draft creation):
+
+```bash
+survey-hub-manage survey.create --params-json '{"brandSlug":"tmwc","updates":{"title":"Brand Feedback","slug":"brand-feedback","estimated_time":5,"settings":{"questions_per_page":5}}}'
+```
+
+Update survey details:
+
+```bash
+survey-hub-manage survey.update --params-json '{"surveyId":"<survey-id>","updates":{"title":"Brand Feedback Updated"}}'
+```
+
+After the requesting admin approves publication, publish the exact survey:
+
+```bash
+survey-hub-manage survey.publish --params-json '{"surveyId":"<survey-id>"}' --confirm-target '<survey-id>'
+```
+
+Then activate its Mom Walk wrapper with `surveys.update` and `is_active: true`.
+Publishing does not send email. Only `survey.deploy-recipients` sends invitations;
+obtain explicit approval for that separate action before running it.
+
+Return a survey to draft:
+
+```bash
+survey-hub-manage survey.unpublish --params-json '{"surveyId":"<survey-id>"}'
+```
+
+Delete only after explicit approval of the exact target:
+
+```bash
+survey-hub-manage survey.delete --params-json '{"surveyId":"<survey-id>"}' --confirm-target '<survey-id>'
+```
+
+The confirmation argument checks the target, not human approval. Never supply it
+without the requesting admin's approval. Use publish/unpublish to change status;
+do not set status through survey.update.
 
 Brand lookup:
 
