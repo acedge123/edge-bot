@@ -37,12 +37,17 @@ The wrapper iframe loads the external survey URL stored as `survey_url`, normall
 https://tmwc.tgasurveys.com/s/<slug>/take
 ```
 
-Create or update that wrapper through `mom-walk-manage`, not direct Supabase SQL:
+Prepare the wrapper as inactive through `mom-walk-manage`:
 
 ```bash
 mom-walk-manage surveys.create \
-  --params-json '{"name":"Brand Feedback","slug":"brand-feedback","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","external_survey_id":"<survey-hub-id>","is_active":true}'
+  --params-json '{"name":"Brand Feedback","slug":"brand-feedback","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","external_survey_id":"<survey-hub-id>","is_active":false}'
 ```
+
+The inactive wrapper reserves the slug but its public page is unavailable.
+Show the survey questions and proposed URL to the requesting admin. After explicit
+approval, publish the external survey with `survey-hub-manage survey.publish`,
+then activate the wrapper:
 
 ```bash
 mom-walk-manage surveys.update \
@@ -64,7 +69,10 @@ Deploy means sending the survey solicitation email. First resolve an active
 mom-walk-manage admin.list-email-templates --params-json '{}'
 ```
 
-Then deploy to explicit recipients only after confirming the survey id. Each
+Sending invitations requires separate explicit approval of the email content
+and recipient list. First verify the external survey is published and the Mom
+Walk wrapper is active; the email backend does not enforce that check. Then
+deploy to explicit recipients only after confirming the survey id. Each
 recipient must include `userId`, `email`, and `name`; resolve users from admin
 lookup/list calls or from community membership before sending.
 
