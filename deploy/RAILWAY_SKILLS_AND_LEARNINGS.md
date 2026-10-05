@@ -20,7 +20,7 @@ Add these to Railway so the agent can access external services:
 | `MOM_WALK_AGENT_MINT_SECRET` | Required for the `mom-walk-manage` tool. Exchanges for a short-lived Mom Walk admin JWT. |
 | `MOM_WALK_SUPABASE_ANON_KEY` | Optional but recommended for Mom Walk Edge Function calls. |
 | `MOM_WALK_FUNCTIONS_URL` | Optional override for Mom Walk functions; defaults to production. |
-| `SURVEY_HUB_MANAGE_SECRET` | Required for the `survey-hub-manage` tool. Must match Client Survey Hub `MANAGE_API_SECRET`; do not use service-role keys in Railway. |
+| `MANAGE_API_SECRET` | Required for the `survey-hub-manage` tool. Must match Client Survey Hub `MANAGE_API_SECRET`; do not use service-role keys in Railway. `SURVEY_HUB_MANAGE_SECRET` is an optional override alias. |
 | `SURVEY_HUB_FUNCTIONS_URL` | Optional override for Client Survey Hub functions; defaults to production. |
 | `GOOGLE_MAPS_API_KEY` | Optional. **Places API (New)** for **`google-places`** / **`sponsors-database`** skills (venue search, sponsor enrichment). |
 
@@ -71,7 +71,7 @@ No need to copy files — learnings are already in Supabase.
 | AGENT_EDGE_KEY | Set in Railway (same as Supabase agent-vault secret) |
 | platform_key | Set in Railway (platform key from signup/onboarding) |
 | MOM_WALK_AGENT_MINT_SECRET | Set in Railway; must match Mom Walk Supabase `AGENT_MINT_SECRET` |
-| SURVEY_HUB_MANAGE_SECRET | Set in Railway; must match Client Survey Hub Supabase `MANAGE_API_SECRET` |
+| MANAGE_API_SECRET | Set in Railway; must match Client Survey Hub Supabase `MANAGE_API_SECRET`. Optional override: `SURVEY_HUB_MANAGE_SECRET`. |
 | Learnings | Already in Supabase — agent queries via agent-learnings |
 | Skills | Already in repo — deploy automatically |
 | CIQ how-to | Add `workspace/docs/CIQ_LEARNINGS.md` if you want extra context |

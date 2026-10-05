@@ -89,6 +89,26 @@ test("calls survey hub manage endpoint with dedicated secret", async () => {
   assert.deepEqual(result, { brand: { id: "client-1", api_key: "[REDACTED]" } });
 });
 
+test("accepts the deployed MANAGE_API_SECRET name", async () => {
+  let authorization;
+  const result = await executeAction("brand.list", {}, {}, {
+    env: { MANAGE_API_SECRET: "deployed-secret" },
+    fetchImpl: async (_url, init) => {
+      authorization = init.headers.Authorization;
+      return jsonResponse({ brands: [] });
+    },
+  });
+  assert.equal(authorization, "Bearer deployed-secret");
+  assert.deepEqual(result, { brands: [] });
+});
+
+test("missing credentials report both supported names before making a request", async () => {
+  await assert.rejects(() => executeAction("brand.list", {}, {}, {
+    env: {},
+    fetchImpl: async () => assert.fail("must not request without credentials"),
+  }), /MANAGE_API_SECRET \(or SURVEY_HUB_MANAGE_SECRET\)/);
+});
+
 test("delete injects confirm true only after exact confirmation", async () => {
   const requests = [];
   const fetchImpl = async (url, init) => {
