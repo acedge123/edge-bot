@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 const DEFAULT_FUNCTIONS_URL =
   "https://lkdtkhfpydznwaptyufl.supabase.co/functions/v1";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_RECIPIENTS = 500;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -142,6 +143,48 @@ function validateCommunityMembers(input) {
   return { community_id: communityId };
 }
 
+function validateRecipientSelectors(input) {
+  const params = assertObject(input, "params");
+  rejectUnknown(params, ["communityIds", "emails", "userIds", "segment"]);
+  const selectors = {};
+  for (const key of ["communityIds", "emails", "userIds"]) {
+    if (params[key] === undefined) continue;
+    if (!Array.isArray(params[key]) || params[key].length > MAX_RECIPIENTS) {
+      throw new UsageError(`${key} must be an array with at most ${MAX_RECIPIENTS} values.`);
+    }
+    const values = params[key].map((value) => {
+      if (typeof value !== "string") throw new UsageError(`${key} values must be strings.`);
+      const normalized = value.trim().toLowerCase();
+      const pattern = key === "emails" ? EMAIL_PATTERN : UUID_PATTERN;
+      if (!pattern.test(normalized)) throw new UsageError(`Invalid ${key} value.`);
+      return normalized;
+    });
+    if (values.length) selectors[key] = [...new Set(values)];
+  }
+  if (params.segment !== undefined) {
+    if (typeof params.segment !== "string" || !params.segment.trim() || params.segment.trim().length > 200) {
+      throw new UsageError("segment must contain 1-200 characters.");
+    }
+    selectors.segment = params.segment.trim();
+  }
+  if (!Object.keys(selectors).length) throw new UsageError("Provide communityIds, emails, userIds, or segment.");
+  return selectors;
+}
+
+function validateResolvedRecipients(payload) {
+  const recipients = payload?.data?.recipients;
+  if (!Array.isArray(recipients) || recipients.length > MAX_RECIPIENTS) {
+    throw new Error(`Recipient resolver must return an array with at most ${MAX_RECIPIENTS} recipients.`);
+  }
+  for (const recipient of recipients) {
+    if (!recipient || !UUID_PATTERN.test(recipient.userId ?? "") ||
+      typeof recipient.email !== "string" || !EMAIL_PATTERN.test(recipient.email) ||
+      typeof recipient.name !== "string") {
+      throw new Error("Recipient resolver returned a recipient incompatible with survey.deploy-recipients.");
+    }
+  }
+}
+
 function validateSurveyDeploy(input, confirmation) {
   const params = assertObject(input, "params");
   rejectUnknown(params, ["surveyId", "templateId", "recipients"]);
@@ -151,8 +194,8 @@ function validateSurveyDeploy(input, confirmation) {
   if (typeof params.templateId !== "string" || !UUID_PATTERN.test(params.templateId)) {
     throw new UsageError("templateId must be a UUID.");
   }
-  if (!Array.isArray(params.recipients) || params.recipients.length < 1 || params.recipients.length > 500) {
-    throw new UsageError("recipients must contain 1-500 recipients.");
+  if (!Array.isArray(params.recipients) || params.recipients.length < 1 || params.recipients.length > MAX_RECIPIENTS) {
+    throw new UsageError(`recipients must contain 1-${MAX_RECIPIENTS} recipients.`);
   }
   const recipients = params.recipients.map((recipient, index) => {
     assertObject(recipient, `recipients[${index}]`);
@@ -255,6 +298,13 @@ export const ACTIONS = Object.freeze({
     payloadAction: "list",
     risk: "read",
     validate: (params) => validateEmailTemplates(params),
+  },
+  "recipients.resolve": {
+    resource: "admin",
+    action: "resolve-recipients",
+    risk: "read",
+    validate: validateRecipientSelectors,
+    validateResponse: validateResolvedRecipients,
   },
   "admin.list-email-templates": {
     resource: "admin",
@@ -421,6 +471,7 @@ export async function executeAction(
     );
   }
 
+  definition.validateResponse?.(managePayload);
   return redactSecrets(managePayload);
 }
 
