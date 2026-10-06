@@ -1,6 +1,6 @@
 ---
 name: "mom-walk-campaigns"
-description: "Find communities and existing partner brands, submit sampling/seeding/IRL gifting quote requests, and check request status. Also routes discount-deal requests to supported Mom Walk tools."
+description: "Find communities and existing partner brands, submit or update unquoted sampling/seeding/IRL gifting quote requests, and check request status. Also routes discount-deal requests to supported Mom Walk tools."
 metadata:
   openclaw:
     requires:
@@ -47,7 +47,8 @@ the returned `brand_account_id`: some accounts have no primary email. Multiple
 matching accounts require disambiguation; do not silently pick the first one.
 The brand must already have a Mom Walk Partners account. If absent, ask the
 brand to sign up at `https://momwalkpartners.com`, then retry the lookup.
-This API never creates brand accounts.
+This client only selects existing brand accounts. The backend also supports
+pipeline-brand creation, but that separate capability is not exposed here.
 
 ## Submit a Quote Request
 
@@ -96,6 +97,58 @@ HTTP 400 can identify unknown communities in `missing`; re-resolve them.
 409 may mean ambiguous email (use a resolved ID) or no brand portal user.
 Do not blindly retry creation after a timeout, connection failure, or 5xx:
 creation is not idempotent. Check Admin Requests for an existing record first.
+
+## Update an Existing Agent Request
+
+Use `requests.update` to correct the same request, not a new submission, while
+it is still **submitted and unquoted**. First run `requests.get` with its real
+ID. The client also re-reads it before writing and rejects other statuses.
+The backend additionally rejects requests not created via the agent API (403)
+and any request with a quote/proposal (409), even if its status says submitted.
+On a quote-lock error, stop and explain that a new request is needed; do not
+automatically submit a duplicate or try another API to bypass the lock.
+
+Send `id` plus only the intended changes. Supported fields: `product_name`,
+`product_description`, `product_url`, `product_image_url`, `request_type`,
+`community_ids`, `target_recipients`, `start_date`, `end_date`, `instructions`,
+`ambassadors_only`, `brand_account_id`, and `brand_email`. The same limits and
+validation as creation apply. At least one change is required. Omitted values
+are not added by the client: in particular, omitted `ambassadors_only` does not
+become false. Null is not supported as a clearing value; empty description or
+instructions is accepted. Reassigning a brand requires resolving and confirming
+the intended existing account first; prefer its ID.
+
+**`community_ids` is a full replacement**, never an append. Resolve every
+community to keep/add, show the complete resulting set and explain removals,
+then get confirmation for the exact request ID and proposed changes.
+
+```bash
+brand-connect-campaigns requests.update \
+  --params-json '{"id":"<request-uuid>","target_recipients":500}' \
+  --confirm-target '<request-uuid>'
+```
+
+This sends PATCH to the same endpoint. Success is HTTP 200 with `id`, `status`,
+`updated_fields`, `request`, and `next_step`, wrapped in the client's `response`.
+The API records request history: `Updated via agent API - fields: ...` (the
+displayed punctuation may differ). Updating is not approval or onward delivery.
+
+Backend caveat: PATCH currently rewrites admin `brand_notes` even when
+`instructions` is omitted, so earlier instructions can be lost. If the request
+had instructions, obtain their current text from the requester/admin and include
+the confirmed text to retain it. GET does not expose those notes; do not invent
+them or assume omission preserves them. Report this caveat before updating.
+
+After PATCH, run `requests.get` again. Compare the ID, product name, brand ID,
+request type, target recipients, community count, and dates against the intended
+values wherever returned. GET does not return community membership IDs,
+description, links, instructions, or ambassadors-only, so use `updated_fields`
+as API acknowledgement for those fields and ask the admin to verify their exact
+saved values in Requests. Do not claim independently verified values that GET
+does not expose. Report the ID, status, changed fields, and any unverified values.
+If verification fails, stop and report it; do not send onward or create a duplicate.
+Timeouts/5xx can have partial effects: read the request and check history before
+any retry. Every PATCH may add another history entry.
 
 ## Discount Deals Are Separate
 

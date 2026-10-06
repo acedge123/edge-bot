@@ -10,7 +10,7 @@ const env = { ENRICHMENT_AGENT_KEY: 'private-outreach-key' };
 const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
 
 test('registry exposes only lookup, submission, and status', () => {
-  assert.deepEqual(ACTIONS, ['communities.search', 'brands.search', 'brands.resolve-email', 'requests.create', 'requests.get']);
+  assert.deepEqual(ACTIONS, ['communities.search', 'brands.search', 'brands.resolve-email', 'requests.create', 'requests.get', 'requests.update']);
   for (const action of ['approve', 'send', 'activate', 'requests.delete']) assert.throws(() => buildRequest(action), /Unsupported action/);
 });
 
@@ -102,4 +102,76 @@ test('missing auth and malformed CLI do not call the API', async () => {
   await assert.rejects(() => executeAction('brands.search', { query: 'brand' }, {}, { env: {}, fetchImpl: () => assert.fail('No credentials') }), /ENRICHMENT_AGENT_KEY/);
   assert.deepEqual(parseCliArgs(['requests.get', '--params-json', JSON.stringify({ id: brandId })]), { action: 'requests.get', params: { id: brandId }, options: {} });
   for (const args of [['brands.search', '--params-json'], ['brands.search', '--params-json', 'bad'], ['requests.get', '--url', 'https://evil.example']]) assert.throws(() => parseCliArgs(args));
+});
+
+test('PATCH sends only confirmed changes without creation defaults', () => {
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, target_recipients: 500 }, confirmation),
+    { method: 'PATCH', query: '', body: { id: brandId, target_recipients: 500 } });
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, community_ids: [communityId, communityId], ambassadors_only: false }, confirmation).body,
+    { id: brandId, community_ids: [communityId], ambassadors_only: false });
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, brand_account_id: communityId, instructions: '' }, confirmation).body,
+    { id: brandId, brand_account_id: communityId, instructions: '' });
+});
+
+test('PATCH rejects missing changes, confirmation, invalid fields and values before network', async () => {
+  for (const params of [{ id: brandId }, { id: 'invalid', product_name: 'Name' },
+    { id: brandId, status: 'submitted' }, { id: brandId, product_name: '' },
+    { id: brandId, community_ids: [] }, { id: brandId, target_recipients: null },
+    { id: brandId, ambassadors_only: null }, { id: brandId, instructions: null },
+    { id: brandId, product_url: 'javascript:alert(1)' }, { id: brandId, create_brand: true }]) {
+    await assert.rejects(() => executeAction('requests.update', params, confirmation, { fetchImpl: () => assert.fail('Invalid PATCH must not call network') }));
+  }
+  assert.throws(() => buildRequest('requests.update', { id: brandId, product_name: 'Name' }, { confirmTarget: communityId }), /confirm-target/);
+});
+
+test('PATCH checks current request then preserves partial payload and response', async () => {
+  const calls = [];
+  const payload = { id: brandId, status: 'submitted', updated_fields: ['target_recipients'], request: { id: brandId, target_recipients: 500 } };
+  const result = await executeAction('requests.update', { id: brandId, target_recipients: 500 }, confirmation, { env, fetchImpl: async (url, init) => {
+    calls.push({ url, method: init.method, body: init.body });
+    return response(init.method === 'GET' ? { request: { id: brandId, status: 'submitted' } } : payload);
+  } });
+  assert.deepEqual(calls, [{ url: `${CAMPAIGN_API_URL}?id=${brandId}`, method: 'GET', body: undefined },
+    { url: CAMPAIGN_API_URL, method: 'PATCH', body: JSON.stringify({ id: brandId, target_recipients: 500 }) }]);
+  assert.deepEqual(result.response, payload);
+});
+
+test('PATCH rejects non-submitted requests and cross-existing date inversion without writing', async () => {
+  for (const existing of [{ id: brandId, status: 'proposal_in_progress' },
+    { id: brandId, status: 'submitted', start_date: '2026-11-10', end_date: '2026-11-15' }]) {
+    let calls = 0;
+    await assert.rejects(() => executeAction('requests.update', { id: brandId, end_date: '2026-11-01' }, confirmation, { env, fetchImpl: async (url, init) => {
+      calls++;
+      assert.equal(init.method, 'GET');
+      return response({ request: existing });
+    } }), /submitted|before start_date/);
+    assert.equal(calls, 1);
+  }
+});
+
+test('PATCH preserves quote locks, source restrictions, missing IDs, and auth errors without retries', async () => {
+  for (const status of [400, 401, 403, 404, 409, 500]) {
+    let calls = 0;
+    const result = await executeAction('requests.update', { id: brandId, community_ids: [communityId] }, confirmation, { env, fetchImpl: async (url, init) => {
+      calls++;
+      return response(init.method === 'GET' ? { request: { id: brandId, status: 'submitted' } } :
+        { error: 'Submit a new request', missing: [communityId] }, init.method === 'GET' ? 200 : status);
+    } });
+    assert.equal(calls, 2);
+    assert.equal(result.status, status);
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.response.missing, [communityId]);
+  }
+});
+
+test('PATCH stops on failed preflight and malformed or uncertain write outcomes', async () => {
+  let calls = 0;
+  const blocked = await executeAction('requests.update', { id: brandId, product_name: 'Name' }, confirmation, { env, fetchImpl: async () => { calls++; return response({ error: 'Not found' }, 404); } });
+  assert.equal(blocked.action, 'requests.update');
+  assert.equal(blocked.status, 404);
+  assert.equal(calls, 1);
+  for (const malformed of [{ id: communityId }, { id: brandId, request: { id: communityId }, updated_fields: [] }]) {
+    await assert.rejects(() => executeAction('requests.update', { id: brandId, product_name: 'Name' }, confirmation, { env, fetchImpl: async (url, init) =>
+      response(init.method === 'GET' ? { request: { id: brandId, status: 'submitted' } } : malformed) }), /outcome uncertain/);
+  }
 });
