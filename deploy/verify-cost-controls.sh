@@ -97,6 +97,7 @@ node --test "$ROOT_DIR/workspace/scripts/repo-c-lane-a.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/github-via-owner.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/portfolio-research-api.test.mjs" >/dev/null
 node --test "$ROOT_DIR/tools/brand-connect-sponsor-ops.test.mjs" >/dev/null
+node --test "$ROOT_DIR/tools/brand-connect-campaigns.test.mjs" >/dev/null
 
 if grep -q 'plugins list' "$ROOT_DIR/deploy/entrypoint.sh"; then
   echo "Entrypoint must not dump the full plugin inventory during startup." >&2

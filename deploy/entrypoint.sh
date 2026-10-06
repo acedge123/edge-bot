@@ -160,11 +160,12 @@ echo "[entrypoint] required plugin packages ready"
 
 # Exec approvals share the persistent SQLite state. Seed once per agent-roster
 # version instead of invoking the migration-heavy CLI on every container boot.
-APPROVALS_MARKER="${OPENCLAW_STATE_DIR}/state/.approved-tga-tools-v4"
+APPROVALS_MARKER="${OPENCLAW_STATE_DIR}/state/.approved-tga-tools-v5"
 if [ ! -f "${APPROVALS_MARKER}" ]; then
   for agent_id in main main-light main-med main-critical; do
     openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/mom-walk-manage" >/dev/null
     openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/brand-connect-sponsor-ops" >/dev/null
+    openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/brand-connect-campaigns" >/dev/null
     openclaw approvals allowlist add --agent "${agent_id}" "/usr/local/bin/survey-hub-manage" >/dev/null
   done
   mkdir -p "$(dirname "${APPROVALS_MARKER}")"

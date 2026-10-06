@@ -60,6 +60,7 @@ TGA owns the surrounding behavior needed for reliable production operation:
 | GitHub | `EDGE_BOT_PERSONAL`, `EDGE_BOT_TOKEN`; legacy org fallback `TGA_GH_TOKEN`; purpose-specific tokens such as `GITHUB_SDR_TOKEN` only when explicitly selected | Owner-aware `github-via-owner.mjs`; do not use OpenClaw account identity as proof of repository access |
 | Portfolio Research Lab | `AGENT_API_BASE`, `PORTFOLIO_AGENT_API_KEY`; optional `PORTFOLIO_AGENT_READ_KEY` | `portfolio-research-api.mjs` with `x-agent-api-key`; paper trading only |
 | Brand Connect sponsor ops | `ENRICHMENT_AGENT_KEY`; optional `BRAND_CONNECT_SPONSOR_OPS_BASE` only for the approved Brand Connect Hub base | `brand-connect-sponsor-ops` with `Authorization: Bearer`; `run-cycle` defaults dry-run |
+| Sampling quote requests | `ENRICHMENT_AGENT_KEY` (same as sponsor outreach) | `brand-connect-campaigns` pins `api-campaign-requests`; lookups/status are reads, creation requires exact brand confirmation and returns `submitted` with an admin notification. No approve/send actions. |
 | Governance Hub | `ACP_BASE_URL`, `ACP_KERNEL_ID`, `ACP_KERNEL_KEY` | `governance-runtime` auth lanes |
 | Mom Walk manage | `MOM_WALK_AGENT_MINT_SECRET` | Root-owned `mom-walk-manage` only |
 

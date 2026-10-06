@@ -1,99 +1,108 @@
 ---
 name: "mom-walk-campaigns"
-description: "Use when creating Mom Walk discount deals or campaign requests, preparing a temporary/test campaign, or asking for the required intake template and trigger keywords."
+description: "Find communities and existing partner brands, submit sampling/seeding/IRL gifting quote requests, and check request status. Also routes discount-deal requests to supported Mom Walk tools."
 metadata:
   openclaw:
     requires:
-      env: [AGENT_MINT_SECRET, BRAND_PORTAL_API_KEY]
+      bins: [brand-connect-campaigns]
+      env: [ENRICHMENT_AGENT_KEY]
 ---
 
 # Mom Walk Campaigns
 
-Use this skill for the Mom Walk Collective campaign workflow. The goal is to create records that stay paused or pending until an admin intentionally activates them.
-
-## Trigger keywords
-
-Use this skill when the user says any of the following:
-
-- Mom Walk campaign
-- campaign request
-- brand campaign setup
-- discount code
-- Mom Walk deal
-- paused deal
-- temporary campaign
-- test campaign
-- Agent test campaign
-- create campaign template
-
-If the request is ambiguous, ask for the campaign intake fields listed below before taking action.
-
-## 1. Identify the branch
-
-Decide which flow the user wants:
-
-- **Discount code / deal**: create the deal, then immediately pause it.
-- **Campaign request**: submit the campaign as `pending` through the brand portal API.
-
-If the request mixes both, handle the deal first, then the campaign request. Keep the two records linked by coupon code and incentive details.
-
-## 2. Gather required inputs
-
-Before calling anything, confirm the exact values needed for the branch:
-
-- Deal: `brand_name`, `title`, `category`, `discount_text`, `coupon_code`, `brand_url`, `expires_at`, `description`, `target_audience`.
-- Campaign: `brand_name`, `brand_contact_email`, `campaign_title`, `campaign_description`, `assignment_type`, `campaign_start_date`, `campaign_end_date`, `target_community_ids`, `incentive_type`, `incentive_value`, `incentive_details`, and optional `brand_contact_name` and `ambassadors_only`.
-
-Never invent community UUIDs. Resolve them from the API or from trusted workspace data.
-
-## 3. Create a deal, then pause it
-
-Use the reviewed `mom-walk-manage` client for all deal actions.
-
-1. Discover the supported actions first with:
+Use the root-owned `brand-connect-campaigns` client. Its approved endpoint is
+`https://evthfmqawotwbbkxfxep.supabase.co/functions/v1/api-campaign-requests`.
+Every call uses the same `ENRICHMENT_AGENT_KEY` bearer authentication as sponsor
+outreach. Do not use the obsolete singular `api-campaign-request`,
+`BRAND_PORTAL_API_KEY`, raw HTTP, or hand-built shell requests for this flow.
 
 ```bash
-mom-walk-manage list-actions
+brand-connect-campaigns list-actions
 ```
 
-2. Create the deal.
-3. Immediately pause it with the returned deal id.
-4. Verify the final state is `is_active: false` before moving on.
+## Resolve Communities First
 
-Report the deal id and final active state. If the pause step fails, retry it before doing anything else.
+Find real IDs by community name, city/location, or state:
 
-## 4. Submit a campaign request as pending
+```bash
+brand-connect-campaigns communities.search --params-json '{"query":"denver","limit":25}'
+```
 
-Use the brand portal contract endpoint for campaign requests.
+This maps to `GET ?communities=denver&limit=25`. The response contains
+`communities: [{id,name,state,location}]`. Limit defaults to 25, maximum 50.
+Select the intended rows, clarifying ambiguous matches with the requester.
+Never fabricate IDs or substitute a similar city. For a test community, search
+its name and verify the actual row; there is no automatic test fallback.
 
-1. Resolve the target communities from the API first.
-2. Submit the request with the exact selected community ids.
-3. Confirm the result shows `status: pending`.
-4. Do not call any activation or notification step.
+## Resolve the Existing Brand
 
-If the user only wants the campaign request, stop after the pending record is created.
+```bash
+brand-connect-campaigns brands.search --params-json '{"query":"good crisp"}'
+brand-connect-campaigns brands.resolve-email --params-json '{"brand_email":"billing@brand.com"}'
+```
 
-## 5. Human gate
+These map to `GET ?brands=...` and `GET ?brand_email=...`. Brand rows include
+`id`, `name`, and `primary_email` (possibly null). Prefer name search and pass
+the returned `brand_account_id`: some accounts have no primary email. Multiple
+matching accounts require disambiguation; do not silently pick the first one.
+The brand must already have a Mom Walk Partners account. If absent, ask the
+brand to sign up at `https://momwalkpartners.com`, then retry the lookup.
+This API never creates brand accounts.
 
-Only admins may activate the deal or approve the campaign later. Do not simulate activation, notification, or “go live” behavior inside this skill.
+## Submit a Quote Request
 
-## 6. Verification
+Collect the fields in `intake-template.md`. Required: a resolved brand ID or
+email, `request_type` (`sampling`, `seeding`, `irl_gifting`), `product_name`
+(1-200 characters), and 1-500 resolved `community_ids`.
 
-Always finish by reporting:
+Optional fields: `product_description` and `instructions` (up to 4000 characters),
+`product_url` (HTTPS, up to 500 characters), `product_image_url` (HTTPS, up to
+1000), `target_recipients` (integer 1-1,000,000), `start_date`, `end_date`
+(YYYY-MM-DD; end not before start), and `ambassadors_only` (boolean; default false).
+Omit unknown optional values rather than inventing them.
 
-- the deal id and whether it is paused, if a deal was created
-- the campaign request id and status, if a campaign was submitted
-- any missing inputs or blocked steps
+Show the selected brand, communities, product, type, and dates to the requester.
+Obtain confirmation to submit: **creation sends an admin notification email**,
+even though it does not deliver anything to Mom Walk participants.
 
-## Guardrails
+```bash
+brand-connect-campaigns requests.create \
+  --params-json '{"brand_account_id":"<resolved-brand-uuid>","request_type":"sampling","product_name":"Confirmed product","community_ids":["<resolved-community-uuid>"],"ambassadors_only":false}' \
+  --confirm-target '<resolved-brand-uuid>'
+```
 
-- Never bypass the reviewed `mom-walk-manage` client with raw `bash`, `curl`, or `jq` for deal management.
-- Never call `notify-campaign-participants`.
-- Never fabricate community ids.
-- Never expose mint secrets, API keys, or temporary credentials.
-- Keep all pre-launch records paused or pending until an admin decides otherwise.
-- Do not treat `ENRICHMENT_AGENT_KEY` as a drop-in replacement for `BRAND_PORTAL_API_KEY` on `api-campaign-request`; the live campaign endpoint still rejects it.
+If using email only, confirm that exact email instead. When both are supplied,
+the ID takes precedence and confirmation must match the ID.
 
-## Intake template
+Success is HTTP 201 with `{id,status:"submitted",brand,communities,next_step}`.
+The client wraps API output as `{action,status,ok,response}`; read the record
+from `response`. Report its ID and **submitted, awaiting admin quote** status.
+Do not call it published, sent, approved, or a `pending` API status.
 
-See `intake-template.md` for the exact fill-in format to collect before creating a campaign request.
+## Status and Human Gates
+
+```bash
+brand-connect-campaigns requests.get --params-json '{"id":"<returned-request-uuid>"}'
+```
+
+This maps to `GET ?id=...`, returning `response.request` with current status.
+Only the normal admin quote -> brand approval -> admin Send to Mom Walk flow
+may move the request onward. The client exposes no approval, activation,
+participant-notification, or onward-send actions.
+
+HTTP 400 can identify unknown communities in `missing`; re-resolve them.
+401 means missing/wrong key: stop and report the configuration issue.
+404 means brand/request absent; a new brand needs signup first.
+409 may mean ambiguous email (use a resolved ID) or no brand portal user.
+Do not blindly retry creation after a timeout, connection failure, or 5xx:
+creation is not idempotent. Check Admin Requests for an existing record first.
+
+## Discount Deals Are Separate
+
+For discount/deal management, load `mom-walk-manage` and inspect its reviewed
+registry. If create/pause actions are unavailable, report the missing capability;
+do not improvise HTTP calls or publish an active deal before pausing it.
+Do not translate a discount deal into a sampling quote request without asking.
+
+Never expose API keys. Lookup results are authoritative, not static workspace
+lists. Do not create a real or test request merely to validate this skill.
