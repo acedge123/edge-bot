@@ -72,8 +72,27 @@ Sending invitations requires a separate human-approved request for the email
 content and recipient list. The backend checks the external survey is published
 and the Mom Walk wrapper is active. Submit explicit recipients after confirming
 the survey id. Each
-recipient must include `userId`, `email`, and `name`; resolve users from admin
-lookup/list calls or from community membership before sending.
+recipient must include `userId`, `email`, and `name`. Resolve them using:
+
+```bash
+mom-walk-manage recipients.resolve \
+  --params-json '{"communityIds":["39be14ef-d68f-4c22-9e5a-78bc577ff974"]}'
+```
+
+Optional selectors are `communityIds`, `emails`, `userIds` (arrays), and `segment`
+(a string). Selectors combine as a union; the backend deduplicates members.
+Each input array accepts at most 500 values and the result never exceeds 500 moms.
+Emails are trimmed/lowercased and IDs must be UUIDs. At least one selector is required.
+The response is `{success:true,data:{recipients,count,unmatchedEmails,capReached}}`.
+`data.recipients` is directly compatible with `survey.deploy-recipients`; pass
+that exact returned array, not fabricated identities or membership-row IDs.
+If `capReached` is true, report the limit before creating a delivery request;
+do not silently split requests to bypass it. Report unmatched emails without
+inventing replacements. Avoid displaying the full recipient list in chat.
+
+The current backend only recognizes `segment: "ambassadors"`. The client forwards
+other names/IDs, but arbitrary saved-group lookup is not implemented by the backend.
+Do not claim a saved-group selector resolved successfully without checking its results.
 
 ```bash
 mom-walk-manage survey.deploy-recipients \

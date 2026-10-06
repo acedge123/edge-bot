@@ -25,6 +25,7 @@ test("registry exposes only reviewed actions", () => {
     "survey.deploy-recipients",
     "surveys.request-publish",
     "surveys.approvals",
+    "recipients.resolve",
     "admin.list-email-templates",
     "admin.list-users",
     "communities.list",
@@ -39,6 +40,53 @@ test("CLI parser requires valid JSON", () => {
     () => parseCliArgs(["admin.find-user", "--params-json", "nope"]),
     UsageError,
   );
+});
+
+test("recipient selectors normalize combined selectors and preserve segment names", () => {
+  const id = '39be14ef-d68f-4c22-9e5a-78bc577ff974';
+  assert.deepEqual(ACTIONS['recipients.resolve'].validate({ communityIds: [id, id],
+    emails: [' MOM@example.com ', 'mom@example.com'], userIds: [id], segment: ' Saved Group ' }),
+  { communityIds: [id], emails: ['mom@example.com'], userIds: [id], segment: 'Saved Group' });
+  for (const input of [{}, { emails: [] }, { userIds: ['invalid'] }, { emails: ['invalid'] },
+    { communityIds: id }, { segment: '' }, { segment: 42 }, { emails: [null] },
+    { emails: Array(501).fill('mom@example.com') }, { limit: 1000 }]) {
+    assert.throws(() => ACTIONS['recipients.resolve'].validate(input), UsageError);
+  }
+});
+
+test("recipient resolution uses admin authentication and feeds the pending send workflow", async () => {
+  const requests = [];
+  const recipient = { userId: '33333333-3333-4333-8333-333333333333', email: 'mom@example.com', name: 'Mom' };
+  const resolved = { success: true, data: { recipients: [recipient], count: 1,
+    unmatchedEmails: ['missing@example.com'], capReached: false } };
+  const dependencies = { env: { MOM_WALK_AGENT_MINT_SECRET: 'mint-secret' },
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init });
+      return jsonResponse(url.endsWith('/mint-agent-token') ? { access_token: 'private-token' } :
+        url.endsWith('/manage') ? resolved : { success: true, data: { id: 'request', status: 'pending' } });
+    } };
+  const selectors = { communityIds: ['39be14ef-d68f-4c22-9e5a-78bc577ff974'], emails: ['missing@example.com'] };
+  const response = await executeAction('recipients.resolve', selectors, {}, dependencies);
+  assert.deepEqual(response, resolved);
+  assert.deepEqual(JSON.parse(requests[1].init.body), { resource: 'admin', action: 'resolve-recipients', params: selectors });
+  assert.equal(requests[1].init.headers.Authorization, 'Bearer private-token');
+  const surveyId = '11111111-1111-4111-8111-111111111111';
+  const pending = await executeAction('survey.deploy-recipients', { surveyId,
+    templateId: '22222222-2222-4222-8222-222222222222', recipients: response.data.recipients },
+  { confirmTarget: surveyId }, dependencies);
+  assert.equal(pending.data.status, 'pending');
+  assert.equal(JSON.parse(requests[3].init.body).action, 'request-send');
+  assert.deepEqual(JSON.parse(requests[3].init.body).recipients, [recipient]);
+  assert.ok(requests.every((r) => !r.url.endsWith('/send-survey-solicitation')));
+});
+
+test("recipient resolver rejects over-cap or incompatible results without truncation", async () => {
+  for (const recipients of [Array(501).fill({}), [{ userId: 'invalid', email: 'mom@example.com', name: 'Mom' }]]) {
+    await assert.rejects(() => executeAction('recipients.resolve', { segment: 'ambassadors' }, {},
+      { env: { MOM_WALK_AGENT_MINT_SECRET: 'mint-secret' }, fetchImpl: async (url) =>
+        jsonResponse(url.endsWith('/mint-agent-token') ? { access_token: 'token' } : { success: true, data: { recipients } }) }),
+    /resolver/);
+  }
 });
 
 test("password reset requires an exact target confirmation", async () => {
