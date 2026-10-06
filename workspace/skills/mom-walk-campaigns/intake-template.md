@@ -31,3 +31,15 @@ confirmation. Never silently substitute test targets. Lookup-only verification
 does not authorize creating a test request.
 
 Discount codes/deals are a separate flow, not this quote-request schema.
+
+## Correct an Existing Request
+
+Provide the returned request ID and only the fields to change. Before writing,
+verify it remains submitted/unquoted, show the changes, and obtain confirmation
+of that request ID. If replacing communities, provide the complete desired set
+(including communities to retain). Resolve any new brand or community first.
+
+PATCH currently rewrites admin notes even if instructions are omitted. Confirm
+any earlier instructions that must be retained and include them explicitly.
+Verify with a fresh status read afterward; fields absent from GET require admin
+verification in Requests. A quote lock means a new request is needed, not a retry.

@@ -47,25 +47,25 @@ function date(value, name) {
   return value;
 }
 
-function createParams(input, confirmation) {
+function requestFields(input, { partial = false } = {}) {
   known(input, ['brand_account_id', 'brand_email', 'request_type', 'product_name',
     'product_description', 'product_url', 'product_image_url', 'community_ids',
     'target_recipients', 'start_date', 'end_date', 'instructions', 'ambassadors_only']);
   const params = {};
   if (input.brand_account_id !== undefined) params.brand_account_id = uuid(input.brand_account_id, 'brand_account_id');
   if (input.brand_email !== undefined) params.brand_email = email(input.brand_email);
-  if (!params.brand_account_id && !params.brand_email) throw new Error('brand_account_id or brand_email is required');
-  const target = params.brand_account_id ?? params.brand_email;
-  if (typeof confirmation !== 'string' || confirmation.trim().toLowerCase() !== target) {
-    throw new Error('--confirm-target must match the brand_account_id (preferred) or brand_email; creation notifies admins');
+  if (!partial && !params.brand_account_id && !params.brand_email) throw new Error('brand_account_id or brand_email is required');
+  if (!partial || input.request_type !== undefined) {
+    if (!['sampling', 'seeding', 'irl_gifting'].includes(input.request_type)) throw new Error('request_type must be sampling, seeding, or irl_gifting');
+    params.request_type = input.request_type;
   }
-  if (!['sampling', 'seeding', 'irl_gifting'].includes(input.request_type)) throw new Error('request_type must be sampling, seeding, or irl_gifting');
-  params.request_type = input.request_type;
-  params.product_name = text(input.product_name, 'product_name', 200);
-  if (!Array.isArray(input.community_ids) || !input.community_ids.length || input.community_ids.length > MAX_COMMUNITIES) {
-    throw new Error(`community_ids must contain 1-${MAX_COMMUNITIES} UUIDs resolved from the API`);
+  if (!partial || input.product_name !== undefined) params.product_name = text(input.product_name, 'product_name', 200);
+  if (!partial || input.community_ids !== undefined) {
+    if (!Array.isArray(input.community_ids) || !input.community_ids.length || input.community_ids.length > MAX_COMMUNITIES) {
+      throw new Error(`community_ids must contain 1-${MAX_COMMUNITIES} UUIDs resolved from the API`);
+    }
+    params.community_ids = [...new Set(input.community_ids.map((id) => uuid(id, 'community_ids')))];
   }
-  params.community_ids = [...new Set(input.community_ids.map((id) => uuid(id, 'community_ids')))];
   for (const key of ['product_description', 'instructions']) {
     if (input[key] !== undefined) params[key] = text(input[key], key, 4000, true);
   }
@@ -87,15 +87,36 @@ function createParams(input, confirmation) {
   }
   if (params.start_date && params.end_date && params.end_date < params.start_date) throw new Error('end_date is before start_date');
   if (input.ambassadors_only !== undefined && typeof input.ambassadors_only !== 'boolean') throw new Error('ambassadors_only must be boolean');
-  params.ambassadors_only = input.ambassadors_only ?? false;
+  if (!partial || input.ambassadors_only !== undefined) params.ambassadors_only = input.ambassadors_only ?? false;
   return params;
 }
 
-export const ACTIONS = Object.freeze(['communities.search', 'brands.search', 'brands.resolve-email', 'requests.create', 'requests.get']);
+function confirmTarget(value, target, message) {
+  if (typeof value !== 'string' || value.trim().toLowerCase() !== target) throw new Error(message);
+}
+
+function createParams(input, confirmation) {
+  const params = requestFields(input);
+  confirmTarget(confirmation, params.brand_account_id ?? params.brand_email,
+    '--confirm-target must match the brand_account_id (preferred) or brand_email; creation notifies admins');
+  return params;
+}
+
+function updateParams(input, confirmation) {
+  const { id: rawId, ...changes } = input;
+  const id = uuid(rawId, 'id');
+  confirmTarget(confirmation, id, '--confirm-target must match the request id being updated');
+  const params = requestFields(changes, { partial: true });
+  if (!Object.keys(params).length) throw new Error('Provide at least one field to update');
+  return { id, ...params };
+}
+
+export const ACTIONS = Object.freeze(['communities.search', 'brands.search', 'brands.resolve-email', 'requests.create', 'requests.get', 'requests.update']);
 
 export function buildRequest(action, input = {}, options = {}) {
   const params = object(input);
   if (action === 'requests.create') return { method: 'POST', body: createParams(params, options.confirmTarget), query: '' };
+  if (action === 'requests.update') return { method: 'PATCH', body: updateParams(params, options.confirmTarget), query: '' };
   const query = new URLSearchParams();
   if (action === 'communities.search') {
     known(params, ['query', 'limit']);
@@ -118,10 +139,20 @@ export function buildRequest(action, input = {}, options = {}) {
 
 export async function executeAction(action, params = {}, options = {}, dependencies = {}) {
   const request = buildRequest(action, params, options);
+  if (action === 'requests.update') {
+    const current = await executeAction('requests.get', { id: request.body.id }, {}, dependencies);
+    if (!current.ok) return { ...current, action };
+    const existing = current.response.request;
+    if (existing?.id !== request.body.id) throw new Error('Could not verify the current request before updating');
+    if (existing.status !== 'submitted') throw new Error('Only submitted, unquoted requests may be updated; submit a new request after quoting');
+    const start = request.body.start_date ?? existing.start_date;
+    const end = request.body.end_date ?? existing.end_date;
+    if (start && end && end < start) throw new Error('end_date is before start_date on the existing request');
+  }
   const env = dependencies.env ?? process.env;
   const headers = sponsorOpsHeaders({ env });
   if (request.body) headers['Content-Type'] = 'application/json';
-  // Do not retry POST: the API has no idempotency key and sends an admin email.
+  // Never retry writes automatically: POST notifies admins; PATCH records history.
   const response = await (dependencies.fetchImpl ?? fetch)(`${CAMPAIGN_API_URL}${request.query}`, {
     method: request.method, headers, redirect: 'error',
     body: request.body ? JSON.stringify(request.body) : undefined,
@@ -132,6 +163,10 @@ export async function executeAction(action, params = {}, options = {}, dependenc
   const safePayload = JSON.parse(JSON.stringify(payload).split(secret).join('[REDACTED]'));
   if (response.ok && action === 'requests.create' && (response.status !== 201 || payload.status !== 'submitted' || !UUID.test(payload.id ?? ''))) {
     throw new Error('Unexpected creation response; outcome uncertain. Check Admin Requests before retrying.');
+  }
+  if (response.ok && action === 'requests.update' && (response.status !== 200 || payload.id !== request.body.id ||
+    payload.request?.id !== request.body.id || !Array.isArray(payload.updated_fields))) {
+    throw new Error('Unexpected update response; outcome uncertain. Read the request before retrying.');
   }
   return { action, status: response.status, ok: response.ok, response: safePayload };
 }
@@ -153,7 +188,7 @@ export function parseCliArgs(args) {
 async function main() {
   const { action, params, options } = parseCliArgs(process.argv.slice(2));
   if (action === 'list-actions' || action === 'help') {
-    console.log(JSON.stringify({ actions: ACTIONS, usage: 'brand-connect-campaigns <action> --params-json <json> [--confirm-target <brand-id-or-email>]' }));
+    console.log(JSON.stringify({ actions: ACTIONS, usage: 'brand-connect-campaigns <action> --params-json <json> [--confirm-target <brand-id-or-email-or-request-id>]' }));
     return;
   }
   const result = await executeAction(action, params, options);
