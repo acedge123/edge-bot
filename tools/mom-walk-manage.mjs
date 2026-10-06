@@ -86,6 +86,7 @@ function validateSurveyPayload(input, options = {}) {
     if (!UUID_PATTERN.test(id)) throw new UsageError("id must be a UUID.");
   }
   if (options.create) {
+    if (params.is_active === true) throw new UsageError('Create surveys as drafts; use surveys.request-publish for human approval.');
     for (const key of ["name", "slug", "survey_url"]) {
       if (typeof params[key] !== "string" || !params[key].trim()) {
         throw new UsageError(`${key} is required.`);
@@ -106,7 +107,10 @@ function validateSurveyPayload(input, options = {}) {
       throw new UsageError("survey_url must be a valid URL.");
     }
   }
-  const normalized = { ...params };
+  if (!options.create && params.is_active === true) {
+    throw new UsageError('Use surveys.request-publish for human-approved publication.');
+  }
+  const normalized = { ...params, ...(options.create ? { is_active: false } : {}) };
   for (const key of ["id", "name", "slug", "description", "survey_url", "external_survey_id", "brand_id", "event_id"]) {
     if (typeof normalized[key] === "string") normalized[key] = normalized[key].trim();
   }
@@ -231,9 +235,26 @@ export const ACTIONS = Object.freeze({
     validate: (params, options) => validateDeleteById(params, options.confirmTarget),
   },
   "survey.deploy-recipients": {
-    endpoint: "send-survey-solicitation",
-    risk: "external-send",
+    endpoint: "survey-approvals",
+    payloadAction: "request-send",
+    risk: "write",
     validate: (params, options) => validateSurveyDeploy(params, options.confirmTarget),
+  },
+  "surveys.request-publish": {
+    endpoint: "survey-approvals",
+    payloadAction: "request-publish",
+    risk: "write",
+    validate: (params) => {
+      const validated = validateSurveyLookup(params);
+      if (!validated.id) throw new UsageError('Provide the Mom Walk survey id.');
+      return { surveyId: validated.id };
+    },
+  },
+  "surveys.approvals": {
+    endpoint: "survey-approvals",
+    payloadAction: "list",
+    risk: "read",
+    validate: (params) => validateEmailTemplates(params),
   },
   "admin.list-email-templates": {
     resource: "admin",
@@ -373,7 +394,7 @@ export async function executeAction(
 
   const targetFunction = definition.endpoint ?? "manage";
   const requestBody = definition.endpoint
-    ? validatedParams
+    ? { ...(definition.payloadAction ? { action: definition.payloadAction } : {}), ...validatedParams }
     : {
         resource: definition.resource,
         action: definition.action,

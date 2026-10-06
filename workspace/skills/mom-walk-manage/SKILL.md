@@ -45,13 +45,12 @@ mom-walk-manage surveys.create \
 ```
 
 The inactive wrapper reserves the slug but its public page is unavailable.
-Show the survey questions and proposed URL to the requesting admin. After explicit
-approval, publish the external survey with `survey-hub-manage survey.publish`,
-then activate the wrapper:
+Submit a publication request for a human admin to review in Mom Walk admin
+Surveys. The approval service publishes the external survey and activates its
+wrapper only when a signed-in human admin selects Approve & Publish:
 
 ```bash
-mom-walk-manage surveys.update \
-  --params-json '{"id":"<mom-walk-survey-id>","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","is_active":true}'
+mom-walk-manage surveys.request-publish --params-json '{"id":"<mom-walk-survey-id>"}'
 ```
 
 Soft-delete / unpublish a wrapper by confirming the exact Mom Walk survey id:
@@ -69,10 +68,10 @@ Deploy means sending the survey solicitation email. First resolve an active
 mom-walk-manage admin.list-email-templates --params-json '{}'
 ```
 
-Sending invitations requires separate explicit approval of the email content
-and recipient list. First verify the external survey is published and the Mom
-Walk wrapper is active; the email backend does not enforce that check. Then
-deploy to explicit recipients only after confirming the survey id. Each
+Sending invitations requires a separate human-approved request for the email
+content and recipient list. The backend checks the external survey is published
+and the Mom Walk wrapper is active. Submit explicit recipients after confirming
+the survey id. Each
 recipient must include `userId`, `email`, and `name`; resolve users from admin
 lookup/list calls or from community membership before sending.
 
@@ -82,8 +81,20 @@ mom-walk-manage survey.deploy-recipients \
   --confirm-target '<mom-walk-survey-id>'
 ```
 
-This calls Mom Walk's existing `send-survey-solicitation` function, which handles
-suppression, email logs, and `survey_responses.email_sent_at` tracking.
+This creates a pending send request; it does not send email. A signed-in human
+admin reviews the exact template and recipients, then selects Approve & Send.
+The backend rejects agent approvals, stale or expired content, and reused send
+requests. Approvals expire after 24 hours. Edits require a new request.
+
+Check pending requests:
+
+```bash
+mom-walk-manage surveys.approvals --params-json '{}'
+```
+
+Never claim publication or delivery is complete merely because a request was
+created. Report its request ID and pending status, and direct the human admin to
+Mom Walk admin Surveys. Never call approve/reject endpoints with agent credentials.
 
 Find a user before any password reset:
 

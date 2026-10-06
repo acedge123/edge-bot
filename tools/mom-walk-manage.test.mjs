@@ -23,6 +23,8 @@ test("registry exposes only reviewed actions", () => {
     "surveys.update",
     "surveys.delete",
     "survey.deploy-recipients",
+    "surveys.request-publish",
+    "surveys.approvals",
     "admin.list-email-templates",
     "admin.list-users",
     "communities.list",
@@ -127,7 +129,7 @@ test("mints a token and calls the reviewed manage action without exposing it", a
   assert.doesNotMatch(JSON.stringify(result), /private-access-token/);
 });
 
-test("deploy action calls survey solicitation function with validated recipients", async () => {
+test("deploy action submits a send approval without sending email", async () => {
   const requests = [];
   const fetchImpl = async (url, init) => {
     requests.push({ url, init });
@@ -162,9 +164,10 @@ test("deploy action calls survey solicitation function with validated recipients
   );
 
   assert.equal(requests.length, 2);
-  assert.equal(requests[1].url, "https://example.supabase.co/functions/v1/send-survey-solicitation");
+  assert.equal(requests[1].url, "https://example.supabase.co/functions/v1/survey-approvals");
   assert.equal(requests[1].init.headers.Authorization, "Bearer private-access-token");
   assert.deepEqual(JSON.parse(requests[1].init.body), {
+    action: "request-send",
     surveyId,
     templateId: "22222222-2222-4222-8222-222222222222",
     recipients: [
@@ -176,6 +179,14 @@ test("deploy action calls survey solicitation function with validated recipients
     ],
   });
   assert.deepEqual(result, { success: true, sentCount: 1, errorCount: 0 });
+});
+
+test("Mom Walk creates drafts and blocks direct activation", () => {
+  const input = { name: 'Survey', slug: 'survey', survey_url: 'https://example.com/survey' };
+  assert.equal(ACTIONS['surveys.create'].validate(input).is_active, false);
+  assert.throws(() => ACTIONS['surveys.create'].validate({ ...input, is_active: true }), /approval/);
+  assert.throws(() => ACTIONS['surveys.update'].validate({ id: '11111111-1111-4111-8111-111111111111', is_active: true }), /human-approved/);
+  assert.equal(Object.hasOwn(ACTIONS, 'surveys.approve'), false);
 });
 
 test("redacts secret-shaped fields returned by the API", async () => {

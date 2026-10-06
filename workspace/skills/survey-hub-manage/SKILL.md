@@ -51,15 +51,21 @@ Update survey details:
 survey-hub-manage survey.update --params-json '{"surveyId":"<survey-id>","updates":{"title":"Brand Feedback Updated"}}'
 ```
 
-After the requesting admin approves publication, publish the exact survey:
+Submit publication through the Mom Walk human approval queue:
 
 ```bash
-survey-hub-manage survey.publish --params-json '{"surveyId":"<survey-id>"}' --confirm-target '<survey-id>'
+mom-walk-manage surveys.request-publish --params-json '{"id":"<mom-walk-survey-id>"}'
 ```
 
-Then activate its Mom Walk wrapper with `surveys.update` and `is_active: true`.
-Publishing does not send email. Only `survey.deploy-recipients` sends invitations;
-obtain explicit approval for that separate action before running it.
+The human admin selects Approve & Publish in Mom Walk admin Surveys. That
+backend publishes the external survey and activates the wrapper. The agent has
+no publication approval credential, cannot approve its own requests, and cannot
+activate a wrapper directly. `survey.publish` remains in the API registry but
+the backend rejects calls without its separate server-only approval credential.
+
+`survey.deploy-recipients` now submits a separate pending send request, not an
+email send. A human reviews the template and recipients and selects Approve &
+Send. Report pending request IDs instead of claiming publication or delivery.
 
 Return a survey to draft:
 
@@ -73,9 +79,9 @@ Delete only after explicit approval of the exact target:
 survey-hub-manage survey.delete --params-json '{"surveyId":"<survey-id>"}' --confirm-target '<survey-id>'
 ```
 
-The confirmation argument checks the target, not human approval. Never supply it
-without the requesting admin's approval. Use publish/unpublish to change status;
-do not set status through survey.update.
+The confirmation argument checks the target, not human approval. Publication
+and email approvals are enforced by the backend queue. Use survey.unpublish to
+return a survey to draft; do not set status through survey.update.
 
 Brand lookup:
 
@@ -130,15 +136,18 @@ survey-hub-manage responses.list \
 Client Survey Hub owns the actual survey and question/response data. Mom Walk
 owns the public wrapper and email deployment.
 
-After a survey exists in Client Survey Hub, publish it in Mom Walk with:
+After a survey exists in Client Survey Hub, prepare its inactive Mom Walk draft:
 
 ```bash
 mom-walk-manage surveys.create \
-  --params-json '{"name":"Brand Feedback","slug":"brand-feedback","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","external_survey_id":"<survey-hub-id>","is_active":true}'
+  --params-json '{"name":"Brand Feedback","slug":"brand-feedback","survey_url":"https://tmwc.tgasurveys.com/s/brand-feedback/take","external_survey_id":"<survey-hub-id>","is_active":false}'
 ```
 
-Then deploy to selected recipients with `mom-walk-manage survey.deploy-recipients`
-using an active `survey_solicitation` email template.
+Request publication with `mom-walk-manage surveys.request-publish`. A human must
+review and approve it in Mom Walk admin Surveys before either link is published.
+Then request delivery to selected recipients with `mom-walk-manage survey.deploy-recipients`
+using an active `survey_solicitation` email template. This only queues a separate
+send approval; it does not send emails. Report the pending request ID to the user.
 
 ## Guardrails
 
