@@ -65,7 +65,9 @@ test("recipient resolution uses admin authentication and feeds the pending send 
       return jsonResponse(url.endsWith('/mint-agent-token') ? { access_token: 'private-token' } :
         url.endsWith('/manage') ? resolved : { success: true, data: { id: 'request', status: 'pending' } });
     } };
-  const selectors = { communityIds: ['39be14ef-d68f-4c22-9e5a-78bc577ff974'], emails: ['missing@example.com'] };
+  const selectors = { communityIds: ['39be14ef-d68f-4c22-9e5a-78bc577ff974'], emails: ['missing@example.com'],
+    eventId: recipient.userId, rsvpStatus: 'both', randomCount: 500, state: 'CA',
+    excludeTemplateId: recipient.userId, excludeSurveyId: recipient.userId };
   const response = await executeAction('recipients.resolve', selectors, {}, dependencies);
   assert.deepEqual(response, resolved);
   assert.deepEqual(JSON.parse(requests[1].init.body), { resource: 'admin', action: 'resolve-recipients', params: selectors });
@@ -78,6 +80,46 @@ test("recipient resolution uses admin authentication and feeds the pending send 
   assert.equal(JSON.parse(requests[3].init.body).action, 'request-send');
   assert.deepEqual(JSON.parse(requests[3].init.body).recipients, [recipient]);
   assert.ok(requests.every((r) => !r.url.endsWith('/send-survey-solicitation')));
+});
+
+test("event and random selectors validate boundaries and modifiers before authentication", async () => {
+  const id = '39be14ef-d68f-4c22-9e5a-78bc577ff974';
+  const validate = ACTIONS['recipients.resolve'].validate;
+  assert.deepEqual(validate({ eventId: ` ${id.toUpperCase()} ` }), { eventId: id, rsvpStatus: 'attending' });
+  for (const rsvpStatus of ['attending', 'maybe', 'both']) {
+    assert.equal(validate({ eventId: id, rsvpStatus }).rsvpStatus, rsvpStatus);
+  }
+  for (const randomCount of [1, 500]) {
+    for (const exclusion of ['excludeSurveyId', 'excludeTemplateId']) {
+      assert.deepEqual(validate({ randomCount, [exclusion]: id, state: ' CA ' }),
+        { randomCount, [exclusion]: id, state: 'CA' });
+    }
+  }
+  const invalid = [{ randomCount: 1 }, { excludeSurveyId: id }, { state: 'CA' },
+    { eventId: 'invalid' }, { rsvpStatus: 'maybe' }, { eventId: id, rsvpStatus: 'cancelled' },
+    { randomCount: 1, excludeSurveyId: 'invalid' }, { randomCount: 1, excludeTemplateId: 42 },
+    { randomCount: 1, excludeSurveyId: id, state: '' }, { randomCount: 1, excludeSurveyId: id, state: 42 },
+    ...[0, 501, 1.5, '500', NaN, null].map((randomCount) => ({ randomCount, excludeSurveyId: id }))];
+  for (const params of invalid) {
+    await assert.rejects(() => executeAction('recipients.resolve', params, {}, {
+      fetchImpl: () => assert.fail('Invalid selectors must not authenticate or call the API'),
+    }), UsageError);
+  }
+});
+
+test("community search validates and forwards the lookup through manage", async () => {
+  for (const search of ['', '   ', 42, 'x'.repeat(201)]) {
+    assert.throws(() => ACTIONS['communities.list'].validate({ search }), UsageError);
+  }
+  const requests = [];
+  await executeAction('communities.list', { search: ' Folsom ' }, {}, {
+    env: { MOM_WALK_AGENT_MINT_SECRET: 'mint-secret' },
+    fetchImpl: async (url, init) => {
+      requests.push(init.body ? JSON.parse(init.body) : null);
+      return jsonResponse(url.endsWith('/mint-agent-token') ? { access_token: 'token' } : { success: true, data: [] });
+    },
+  });
+  assert.deepEqual(requests[1], { resource: 'communities', action: 'list', params: { search: 'Folsom', limit: 50, offset: 0 } });
 });
 
 test("recipient resolver rejects over-cap or incompatible results without truncation", async () => {

@@ -67,6 +67,17 @@ function validateSurveyLookup(input) {
   return id ? { id } : { slug };
 }
 
+function validateCommunityList(input) {
+  const params = validateList(input, { extraAllowed: ["active_only", "search"], defaultLimit: 50 });
+  if (params.search !== undefined) {
+    if (typeof params.search !== "string" || !params.search.trim() || params.search.trim().length > 200) {
+      throw new UsageError("search must contain 1-200 characters.");
+    }
+    params.search = params.search.trim();
+  }
+  return params;
+}
+
 function validateSurveyPayload(input, options = {}) {
   const params = assertObject(input, "params");
   const allowed = [
@@ -145,7 +156,8 @@ function validateCommunityMembers(input) {
 
 function validateRecipientSelectors(input) {
   const params = assertObject(input, "params");
-  rejectUnknown(params, ["communityIds", "emails", "userIds", "segment"]);
+  rejectUnknown(params, ["communityIds", "emails", "userIds", "segment", "eventId",
+    "rsvpStatus", "randomCount", "state", "excludeTemplateId", "excludeSurveyId"]);
   const selectors = {};
   for (const key of ["communityIds", "emails", "userIds"]) {
     if (params[key] === undefined) continue;
@@ -167,7 +179,42 @@ function validateRecipientSelectors(input) {
     }
     selectors.segment = params.segment.trim();
   }
-  if (!Object.keys(selectors).length) throw new UsageError("Provide communityIds, emails, userIds, or segment.");
+  for (const key of ["eventId", "excludeTemplateId", "excludeSurveyId"]) {
+    if (params[key] === undefined) continue;
+    if (typeof params[key] !== "string" || !UUID_PATTERN.test(params[key].trim())) {
+      throw new UsageError(`${key} must be a UUID.`);
+    }
+    selectors[key] = params[key].trim().toLowerCase();
+  }
+  if (params.rsvpStatus !== undefined && !selectors.eventId) {
+    throw new UsageError("rsvpStatus requires eventId.");
+  }
+  if (selectors.eventId) {
+    const status = params.rsvpStatus ?? "attending";
+    if (!["attending", "maybe", "both"].includes(status)) {
+      throw new UsageError("rsvpStatus must be attending, maybe, or both.");
+    }
+    selectors.rsvpStatus = status;
+  }
+  if (params.randomCount !== undefined) {
+    if (!Number.isInteger(params.randomCount) || params.randomCount < 1 || params.randomCount > MAX_RECIPIENTS) {
+      throw new UsageError(`randomCount must be an integer from 1 to ${MAX_RECIPIENTS}.`);
+    }
+    if (!selectors.excludeTemplateId && !selectors.excludeSurveyId) {
+      throw new UsageError("Random sampling requires excludeTemplateId or excludeSurveyId.");
+    }
+    selectors.randomCount = params.randomCount;
+  }
+  if (params.state !== undefined) {
+    if (!selectors.randomCount) throw new UsageError("state requires randomCount.");
+    if (typeof params.state !== "string" || !params.state.trim() || params.state.trim().length > 100) {
+      throw new UsageError("state must contain 1-100 characters matching the stored profile state.");
+    }
+    selectors.state = params.state.trim();
+  }
+  if (!["communityIds", "emails", "userIds", "segment", "eventId", "randomCount"].some((key) => selectors[key])) {
+    throw new UsageError("Provide communityIds, emails, userIds, segment, eventId, or randomCount.");
+  }
   return selectors;
 }
 
@@ -322,7 +369,7 @@ export const ACTIONS = Object.freeze({
     resource: "communities",
     action: "list",
     risk: "read",
-    validate: (params) => validateList(params, { extraAllowed: ["active_only"], defaultLimit: 50 }),
+    validate: validateCommunityList,
   },
   "communities.list-members": {
     resource: "communities",

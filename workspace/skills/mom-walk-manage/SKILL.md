@@ -61,12 +61,19 @@ mom-walk-manage surveys.delete \
   --confirm-target '<mom-walk-survey-id>'
 ```
 
-Deploy means sending the survey solicitation email. First resolve an active
-`survey_solicitation` template:
+Deploy prepares a survey invitation for approval; it does not send automatically.
+First run `surveys.list`, match the requested survey by name, verify `is_active`
+is true, and use its returned ID. Never guess a survey ID or slug.
+
+Then resolve an active `survey_solicitation` template:
 
 ```bash
 mom-walk-manage admin.list-email-templates --params-json '{}'
 ```
+
+Use **Survey Invite (generic)**, ID `f2b59770-a6af-4ce5-bef6-a84f5a8360ee`,
+unless the human requests another compatible template. Verify it is active and
+uses `{{survey_url}}`. Templates with a hardcoded survey link are rejected.
 
 Sending invitations requires a separate human-approved request for the email
 content and recipient list. The backend checks the external survey is published
@@ -79,15 +86,46 @@ mom-walk-manage recipients.resolve \
   --params-json '{"communityIds":["39be14ef-d68f-4c22-9e5a-78bc577ff974"]}'
 ```
 
-Optional selectors are `communityIds`, `emails`, `userIds` (arrays), and `segment`
-(a string). Selectors combine as a union; the backend deduplicates members.
+`recipients.resolve` calls the existing `/manage` endpoint as the agent admin
+with `resource: "admin"`, `action: "resolve-recipients"`.
+
+| Selection | Parameters |
+| --- | --- |
+| Specific emails | `emails: ["mom@example.com"]` |
+| Specific user IDs | `userIds: ["<uuid>"]` |
+| Communities | `communityIds: ["<uuid>"]` |
+| Ambassadors | `segment: "ambassadors"` |
+| Event attendees | `eventId: "<uuid>"`, `rsvpStatus: "attending"`, `"maybe"`, or `"both"`; default attending |
+| Random sample | `randomCount: 1..500`, optionally `state: "CA"` (exact stored profile state) |
+| Exclude previous template deliveries | `excludeTemplateId: "<template-uuid>"` |
+| Exclude previous survey invitations | `excludeSurveyId: "<survey-uuid>"` |
+
+Look up community IDs first:
+
+```bash
+mom-walk-manage communities.list --params-json '{"search":"Folsom"}'
+```
+
+Selectors combine as a union; the backend deduplicates members.
 Each input array accepts at most 500 values and the result never exceeds 500 moms.
 Emails are trimmed/lowercased and IDs must be UUIDs. At least one selector is required.
+Random sampling always requires `excludeTemplateId` or `excludeSurveyId`; the
+client rejects a random request without either. Prefer `excludeSurveyId` when
+batching invitations for one survey. The backend currently applies these
+exclusions to the random pool, not to other selectors combined with it; use
+random-only selection when relying on exclusions to prevent repeat invitations.
+Unsubscribed and deleted moms are excluded by the server.
+
+```bash
+mom-walk-manage recipients.resolve \
+  --params-json '{"randomCount":500,"excludeSurveyId":"<mom-walk-survey-id>"}'
+```
+
 The response is `{success:true,data:{recipients,count,unmatchedEmails,capReached}}`.
 `data.recipients` is directly compatible with `survey.deploy-recipients`; pass
 that exact returned array, not fabricated identities or membership-row IDs.
-If `capReached` is true, report the limit before creating a delivery request;
-do not silently split requests to bypass it. Report unmatched emails without
+If `capReached` is true, report that this batch reached the 500-mom cap.
+Report unmatched emails without
 inventing replacements. Avoid displaying the full recipient list in chat.
 
 The current backend only recognizes `segment: "ambassadors"`. The client forwards
@@ -103,7 +141,14 @@ mom-walk-manage survey.deploy-recipients \
 This creates a pending send request; it does not send email. A signed-in human
 admin reviews the exact template and recipients, then selects Approve & Send.
 The backend rejects agent approvals, stale or expired content, and reused send
-requests. Approvals expire after 24 hours. Edits require a new request.
+requests. Approvals expire after 24 hours. If the survey or template changes
+after filing, the request is invalidated/cancelled; file a new request.
+
+For more than 500 moms, stop after filing the first batch and report its request
+ID. Wait until a human has approved it AND delivery has completed before
+resolving another random batch with the same `excludeSurveyId`. Pending requests
+do not count as sent and may return the same moms. Do not queue parallel batches.
+Every subsequent batch also requires a separate human Approve & Send.
 
 Check pending requests:
 
