@@ -45,15 +45,52 @@ These map to `GET ?brands=...` and `GET ?brand_email=...`. Brand rows include
 `id`, `name`, and `primary_email` (possibly null). Prefer name search and pass
 the returned `brand_account_id`: some accounts have no primary email. Multiple
 matching accounts require disambiguation; do not silently pick the first one.
-The brand must already have a Mom Walk Partners account. If absent, ask the
-brand to sign up at `https://momwalkpartners.com`, then retry the lookup.
-This client only selects existing brand accounts. The backend also supports
-pipeline-brand creation, but that separate capability is not exposed here.
+Prefer an existing account when the intended brand matches. If no match exists,
+the same campaign call can create a pipeline brand with explicit permission;
+see below. A portal user is not required to submit or quote the request, but
+one must sign up at `https://momwalkpartners.com` or be linked in Admin Users
+before the brand can approve the quote.
+
+## Create a Missing Pipeline Brand
+
+First search by name and optionally email. Resolve ambiguous existing matches
+instead of creating another brand. Confirm the spelling with the requester:
+`Alan's` and `Allen's` are different names. Preserve the confirmed spelling.
+
+Use `brand_name` (1-200 characters), `create_brand: true`, optional `brand_email`
+(max 255 characters), and optional `brand_website` (HTTPS, max 500) in the same
+campaign submission. Do not pass an existing `brand_account_id` with creation
+enabled. Obtain permission to create the pipeline record and submit the quote
+request; the latter sends an admin notification. Creation requires the extra
+`--confirm-brand-name` flag to match the trimmed name exactly, including case.
+The client never sets `create_brand` automatically.
+
+```bash
+brand-connect-campaigns requests.create \
+  --params-json '{"brand_name":"Confirmed Brand","create_brand":true,"request_type":"sampling","product_name":"Confirmed product","community_ids":["<resolved-community-uuid>"],"ambassadors_only":true}' \
+  --confirm-target 'Confirmed Brand' --confirm-brand-name 'Confirmed Brand'
+```
+
+If `brand_email` is supplied, `--confirm-target` must match that email instead;
+the exact name still needs `--confirm-brand-name`. Without email, confirm the
+name as above. Include all confirmed campaign fields and the complete resolved
+community IDs; do not substitute example IDs or assume the Will Call Test's
+20 IDs are available. Copy them only from trusted request data and verify them.
+
+The backend reuses a matching existing brand; only a missing brand is inserted
+at pipeline stage `interested`. Report `brand_created` and `brand_account_id`
+from the response, not an assumed new account. The request remains `submitted`.
+No portal user or login is created. The brand cannot approve its quote until
+someone signs up or is linked in Admin Users; admins can quote in the meantime.
+
+This client supports the one-step endpoint, so do not bypass it with a separate
+`/admin-agent-ops/brands` call. A failed submission may still have created the
+brand: re-run lookups and check Admin Requests before retrying any write.
 
 ## Submit a Quote Request
 
-Collect the fields in `intake-template.md`. Required: a resolved brand ID or
-email, `request_type` (`sampling`, `seeding`, `irl_gifting`), `product_name`
+Collect the fields in `intake-template.md`. Required: a resolved brand ID,
+email, or confirmed brand name, `request_type` (`sampling`, `seeding`, `irl_gifting`), `product_name`
 (1-200 characters), and 1-500 resolved `community_ids`.
 
 Optional fields: `product_description` and `instructions` (up to 4000 characters),
@@ -93,8 +130,10 @@ participant-notification, or onward-send actions.
 
 HTTP 400 can identify unknown communities in `missing`; re-resolve them.
 401 means missing/wrong key: stop and report the configuration issue.
-404 means brand/request absent; a new brand needs signup first.
-409 may mean ambiguous email (use a resolved ID) or no brand portal user.
+404 means brand/request absent; a missing brand can be created only through the
+explicit creation workflow above. 409 may mean ambiguous brand matches (use
+a resolved ID) or a quote lock on update. Missing portal users block quote
+approval, not submission.
 Do not blindly retry creation after a timeout, connection failure, or 5xx:
 creation is not idempotent. Check Admin Requests for an existing record first.
 
@@ -111,12 +150,16 @@ automatically submit a duplicate or try another API to bypass the lock.
 Send `id` plus only the intended changes. Supported fields: `product_name`,
 `product_description`, `product_url`, `product_image_url`, `request_type`,
 `community_ids`, `target_recipients`, `start_date`, `end_date`, `instructions`,
-`ambassadors_only`, `brand_account_id`, and `brand_email`. The same limits and
+`ambassadors_only`, `brand_account_id`, `brand_email`, `brand_name`,
+`brand_website`, and `create_brand`. The same limits and
 validation as creation apply. At least one change is required. Omitted values
 are not added by the client: in particular, omitted `ambassadors_only` does not
 become false. Null is not supported as a clearing value; empty description or
 instructions is accepted. Reassigning a brand requires resolving and confirming
 the intended existing account first; prefer its ID.
+To create a missing brand while reassigning an unquoted request, also follow the
+pipeline creation workflow and pass `--confirm-brand-name`. `--confirm-target`
+still matches the request ID for PATCH. Never turn creation on silently.
 
 **`community_ids` is a full replacement**, never an append. Resolve every
 community to keep/add, show the complete resulting set and explain removals,
