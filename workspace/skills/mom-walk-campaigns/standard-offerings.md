@@ -11,7 +11,7 @@ request, for example `Seeding: <product>`.
 | request_type | Offering | What it is | Suggested service price |
 | --- | --- | --- | --- |
 | `sampling` | Sampling | Free item shipped to each individual mom and ambassador | $2.00 per item per mom |
-| `seeding` | Seeding | Product sent to community ambassadors in exchange for a social post; suitable for higher-ticket items such as a stroller | Per community: $500 for 1-10 communities; $300 for 11-30; $200 for 30+ (boundary clarification below) |
+| `seeding` | Seeding | Product sent to community ambassadors in exchange for a social post; suitable for higher-ticket items such as a stroller | Per community: $500 for 1-10 communities; $300 for 11-30; $200 for 31+ |
 | `irl_gifting` | IRL Gifting | Gifts for ambassadors plus mom giveaways at a real Mom Walk event, with social posts and an in-person product demo | $400 per event, per community |
 
 ## Estimate From the Request
@@ -26,10 +26,10 @@ request, for example `Seeding: <product>`.
   per community. More events need an admin quote; the request has no event-count
   field. For example, 20 communities suggests $8,000 for that scope.
 
-**Seeding boundary awaiting confirmation:** the supplied tiers overlap at exactly
-30 communities (`11-30` versus `30+`). Do not silently choose a rate at 30. Ask
-the requester/admin whether $300 or $200 applies before presenting a total.
-For other counts, use the supplied non-overlapping ranges.
+**Seeding tier boundaries are inclusive:** exactly 30 communities uses $300
+per community, suggesting $9,000. The $200 rate starts at 31 communities,
+suggesting $6,200 for 31. Rates are estimates, not charges: submission creates
+a `submitted` RFQ and an admin attaches the actual quote.
 
 Product value and shipping are always separate from these service rates.
 Never present them as included, invent their cost, or call the estimate paid.
