@@ -11,7 +11,7 @@ Community names/cities (for lookup):
 Product description (optional, max 4000 characters):
 Product URL (optional HTTPS):
 Product image URL (optional HTTPS):
-Target recipients (optional integer):
+Target recipients (required in practice for Sampling; otherwise optional integer):
 Start date (optional YYYY-MM-DD):
 End date (optional YYYY-MM-DD):
 Instructions for admin (optional, max 4000 characters):
@@ -36,6 +36,12 @@ confirmation. Never silently substitute test targets. Lookup-only verification
 does not authorize creating a test request.
 
 Discount codes/deals are a separate flow, not this quote-request schema.
+
+Choose `request_type` explicitly; the title does not select the offering or
+pricing. Read `standard-offerings.md` for suggested rates. Count unique resolved
+communities for Seeding and IRL Gifting; use confirmed `target_recipients` for
+Sampling. Treat all calculated amounts as estimates, excluding product value
+and shipping. Submission creates an RFQ, not a charge or an approved campaign.
 
 ## Correct an Existing Request
 

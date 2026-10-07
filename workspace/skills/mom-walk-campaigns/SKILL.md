@@ -107,6 +107,18 @@ brand: re-run lookups and check Admin Requests before retrying any write.
 
 ## Submit a Quote Request
 
+Read `standard-offerings.md` when selecting an offering or discussing an estimate.
+Set `request_type` explicitly on **every submission**: it is the field that
+selects the offering and suggested quote pricing, not the campaign title.
+Use exactly `sampling`, `seeding`, or `irl_gifting`. The portal auto-labels the
+request from that value and the product name. PATCH may omit it to retain the
+existing offering; changing a title alone does not switch offerings.
+For Sampling, obtain a confirmed `target_recipients` before submission or an
+estimate; it is required in practice for the $2-per-item-per-mom calculation,
+even though the API schema permits omission. Product value and shipping are
+separate. No charge occurs at submission; admin quoting and brand approval
+remain required. Estimates are not a quote or permission to charge.
+
 Collect the fields in `intake-template.md`. Required: a resolved brand ID,
 email, or confirmed brand name, `request_type` (`sampling`, `seeding`, `irl_gifting`), `product_name`
 (1-200 characters), and 1-500 resolved `community_ids`.
