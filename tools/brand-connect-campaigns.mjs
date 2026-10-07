@@ -34,7 +34,7 @@ function uuid(value, name) {
 }
 
 function email(value) {
-  const result = text(value, 'brand_email', 320).toLowerCase();
+  const result = text(value, 'brand_email', 255).toLowerCase();
   if (!EMAIL.test(result)) throw new Error('brand_email must be a valid email');
   return result;
 }
@@ -48,13 +48,21 @@ function date(value, name) {
 }
 
 function requestFields(input, { partial = false } = {}) {
-  known(input, ['brand_account_id', 'brand_email', 'request_type', 'product_name',
+  known(input, ['brand_account_id', 'brand_email', 'brand_name', 'brand_website', 'create_brand', 'request_type', 'product_name',
     'product_description', 'product_url', 'product_image_url', 'community_ids',
     'target_recipients', 'start_date', 'end_date', 'instructions', 'ambassadors_only']);
   const params = {};
   if (input.brand_account_id !== undefined) params.brand_account_id = uuid(input.brand_account_id, 'brand_account_id');
   if (input.brand_email !== undefined) params.brand_email = email(input.brand_email);
-  if (!partial && !params.brand_account_id && !params.brand_email) throw new Error('brand_account_id or brand_email is required');
+  if (input.brand_name !== undefined) params.brand_name = text(input.brand_name, 'brand_name', 200);
+  if (input.create_brand !== undefined) {
+    if (typeof input.create_brand !== 'boolean') throw new Error('create_brand must be boolean');
+    if (input.create_brand && !params.brand_name) throw new Error('create_brand requires the exact brand_name');
+    if (input.create_brand && params.brand_account_id) throw new Error('Use an existing brand_account_id without create_brand, or create by brand_name');
+    params.create_brand = input.create_brand;
+  }
+  if (!partial && !params.brand_account_id && !params.brand_email && !params.brand_name) throw new Error('brand_account_id, brand_email, or brand_name is required');
+  if (input.brand_website !== undefined && !params.brand_account_id && !params.brand_email && !params.brand_name) throw new Error('brand_website requires a brand identity');
   if (!partial || input.request_type !== undefined) {
     if (!['sampling', 'seeding', 'irl_gifting'].includes(input.request_type)) throw new Error('request_type must be sampling, seeding, or irl_gifting');
     params.request_type = input.request_type;
@@ -69,7 +77,7 @@ function requestFields(input, { partial = false } = {}) {
   for (const key of ['product_description', 'instructions']) {
     if (input[key] !== undefined) params[key] = text(input[key], key, 4000, true);
   }
-  for (const [key, max] of [['product_url', 500], ['product_image_url', 1000]]) {
+  for (const [key, max] of [['product_url', 500], ['product_image_url', 1000], ['brand_website', 500]]) {
     if (input[key] === undefined) continue;
     const value = text(input[key], key, max);
     const url = new URL(value);
@@ -95,18 +103,27 @@ function confirmTarget(value, target, message) {
   if (typeof value !== 'string' || value.trim().toLowerCase() !== target) throw new Error(message);
 }
 
-function createParams(input, confirmation) {
+function confirmBrandCreation(params, options) {
+  if (params.create_brand && options.confirmBrandName !== params.brand_name) {
+    throw new Error('--confirm-brand-name must exactly match brand_name, including spelling and capitalization, to permit pipeline creation');
+  }
+}
+
+function createParams(input, options) {
   const params = requestFields(input);
-  confirmTarget(confirmation, params.brand_account_id ?? params.brand_email,
-    '--confirm-target must match the brand_account_id (preferred) or brand_email; creation notifies admins');
+  confirmBrandCreation(params, options);
+  const target = params.brand_account_id ?? params.brand_email ?? params.brand_name.toLowerCase();
+  confirmTarget(options.confirmTarget, target,
+    '--confirm-target must match the brand_account_id (preferred), brand_email, or brand_name; creation notifies admins');
   return params;
 }
 
-function updateParams(input, confirmation) {
+function updateParams(input, options) {
   const { id: rawId, ...changes } = input;
   const id = uuid(rawId, 'id');
-  confirmTarget(confirmation, id, '--confirm-target must match the request id being updated');
+  confirmTarget(options.confirmTarget, id, '--confirm-target must match the request id being updated');
   const params = requestFields(changes, { partial: true });
+  confirmBrandCreation(params, options);
   if (!Object.keys(params).length) throw new Error('Provide at least one field to update');
   return { id, ...params };
 }
@@ -115,8 +132,8 @@ export const ACTIONS = Object.freeze(['communities.search', 'brands.search', 'br
 
 export function buildRequest(action, input = {}, options = {}) {
   const params = object(input);
-  if (action === 'requests.create') return { method: 'POST', body: createParams(params, options.confirmTarget), query: '' };
-  if (action === 'requests.update') return { method: 'PATCH', body: updateParams(params, options.confirmTarget), query: '' };
+  if (action === 'requests.create') return { method: 'POST', body: createParams(params, options), query: '' };
+  if (action === 'requests.update') return { method: 'PATCH', body: updateParams(params, options), query: '' };
   const query = new URLSearchParams();
   if (action === 'communities.search') {
     known(params, ['query', 'limit']);
@@ -177,10 +194,11 @@ export function parseCliArgs(args) {
   const seen = new Set();
   for (let i = 0; i < rest.length; i += 2) {
     const flag = rest[i];
-    if (!['--params-json', '--confirm-target'].includes(flag) || seen.has(flag) || rest[i + 1] === undefined) throw new Error(`Invalid CLI flag: ${flag}`);
+    if (!['--params-json', '--confirm-target', '--confirm-brand-name'].includes(flag) || seen.has(flag) || rest[i + 1] === undefined) throw new Error(`Invalid CLI flag: ${flag}`);
     seen.add(flag);
     if (flag === '--params-json') result.params = JSON.parse(rest[i + 1]);
-    else result.options.confirmTarget = rest[i + 1];
+    else if (flag === '--confirm-target') result.options.confirmTarget = rest[i + 1];
+    else result.options.confirmBrandName = rest[i + 1];
   }
   return result;
 }
@@ -188,7 +206,7 @@ export function parseCliArgs(args) {
 async function main() {
   const { action, params, options } = parseCliArgs(process.argv.slice(2));
   if (action === 'list-actions' || action === 'help') {
-    console.log(JSON.stringify({ actions: ACTIONS, usage: 'brand-connect-campaigns <action> --params-json <json> [--confirm-target <brand-id-or-email-or-request-id>]' }));
+    console.log(JSON.stringify({ actions: ACTIONS, usage: 'brand-connect-campaigns <action> --params-json <json> [--confirm-target <brand-id-or-email-or-name-or-request-id>] [--confirm-brand-name <exact-name>]' }));
     return;
   }
   const result = await executeAction(action, params, options);

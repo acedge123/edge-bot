@@ -175,3 +175,63 @@ test('PATCH stops on failed preflight and malformed or uncertain write outcomes'
       response(init.method === 'GET' ? { request: { id: brandId, status: 'submitted' } } : malformed) }), /outcome uncertain/);
   }
 });
+
+test('one-step pipeline creation passes exact spelling and all campaign targets', async () => {
+  const { brand_account_id, ...campaign } = input;
+  const name = "Alan's Brand";
+  const params = { ...campaign, brand_name: name, create_brand: true, brand_website: 'https://example.com',
+    ambassadors_only: true, community_ids: Array.from({ length: 20 }, (_, i) => `22222222-2222-4222-8222-${String(i).padStart(12, '0')}`) };
+  let calls = 0;
+  const result = await executeAction('requests.create', params, { confirmTarget: name, confirmBrandName: name }, { env, fetchImpl: async (url, init) => {
+    calls++;
+    assert.equal(url, CAMPAIGN_API_URL);
+    assert.equal(init.method, 'POST');
+    assert.deepEqual(JSON.parse(init.body), params);
+    return response({ id: communityId, status: 'submitted', brand: name, brand_account_id: brandId, brand_created: true }, 201);
+  } });
+  assert.equal(calls, 1);
+  assert.equal(result.response.brand_created, true);
+  assert.equal(result.response.brand_account_id, brandId);
+});
+
+test('new-brand email confirmation is separate from exact name confirmation', () => {
+  const { brand_account_id, ...base } = input;
+  const params = { ...base, brand_name: "Alan's Brand", brand_email: ' Optional@example.com ', create_brand: true };
+  const result = buildRequest('requests.create', params, { confirmTarget: 'optional@example.com', confirmBrandName: "Alan's Brand" });
+  assert.equal(result.body.brand_email, 'optional@example.com');
+  assert.equal(result.body.brand_name, "Alan's Brand");
+  assert.throws(() => buildRequest('requests.create', params, { confirmTarget: "Alan's Brand", confirmBrandName: "Alan's Brand" }), /confirm-target/);
+});
+
+test('brand creation requires exact explicit permission and validated fields before network', async () => {
+  const { brand_account_id, ...base } = input;
+  const name = "Alan's Brand";
+  const params = { ...base, brand_name: name, create_brand: true };
+  for (const confirmBrandName of [undefined, "Allen's Brand", "alan's brand", `${name} `]) {
+    await assert.rejects(() => executeAction('requests.create', params, { confirmTarget: name, confirmBrandName },
+      { fetchImpl: () => assert.fail('No network without exact creation confirmation') }), /confirm-brand-name/);
+  }
+  for (const extra of [{ brand_name: '' }, { brand_name: 'x'.repeat(201) }, { create_brand: 'true' },
+    { create_brand: 1 }, { brand_account_id: brandId }, { brand_website: 'http://example.com' },
+    { brand_email: `${'x'.repeat(250)}@example.com` }]) {
+    assert.throws(() => buildRequest('requests.create', { ...params, ...extra }, { confirmTarget: name, confirmBrandName: name }));
+  }
+});
+
+test('name lookup never silently enables pipeline creation', () => {
+  const { brand_account_id, ...base } = input;
+  const result = buildRequest('requests.create', { ...base, brand_name: 'Existing Brand' }, { confirmTarget: 'Existing Brand' });
+  assert.equal(result.body.brand_name, 'Existing Brand');
+  assert.ok(!Object.hasOwn(result.body, 'create_brand'));
+  assert.equal(buildRequest('requests.create', { ...base, brand_name: 'Existing Brand', create_brand: false }, { confirmTarget: 'Existing Brand' }).body.create_brand, false);
+  assert.throws(() => buildRequest('requests.update', { id: brandId, brand_website: 'https://example.com' }, confirmation), /brand identity/);
+});
+
+test('PATCH pipeline reassignment retains request confirmation and requires exact brand permission', () => {
+  const params = { id: brandId, brand_name: 'New Brand', create_brand: true };
+  assert.throws(() => buildRequest('requests.update', params, confirmation), /confirm-brand-name/);
+  assert.deepEqual(buildRequest('requests.update', params, { ...confirmation, confirmBrandName: 'New Brand' }),
+    { method: 'PATCH', query: '', body: params });
+  assert.throws(() => buildRequest('requests.update', params, { confirmTarget: 'New Brand', confirmBrandName: 'New Brand' }), /request id/);
+  assert.equal(parseCliArgs(['requests.update', '--confirm-brand-name', 'New Brand', '--confirm-target', brandId]).options.confirmBrandName, 'New Brand');
+});

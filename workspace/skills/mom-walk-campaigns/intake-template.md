@@ -3,6 +3,8 @@
 ```text
 Brand name (for lookup):
 Brand email (optional; may be absent on account):
+Brand website (optional HTTPS):
+Permit pipeline brand creation if missing: yes/no (default no)
 Request type: sampling / seeding / irl_gifting
 Product name (required, max 200 characters):
 Community names/cities (for lookup):
@@ -18,8 +20,11 @@ Ambassadors only: yes/no (default no)
 
 Resolve community IDs first, then resolve the existing brand account. Prefer
 `brand_account_id` over email, especially for accounts with null email. Clarify
-ambiguous accounts and communities before submission. A brand without a Mom
-Walk Partners account must sign up first.
+ambiguous accounts and communities before submission. If the brand is missing,
+confirm exact spelling and permission to create it using `brand_name` plus
+`create_brand: true`. It becomes an interested pipeline brand without a portal
+user. A user must sign up or be linked before approving the quote; admins may
+quote the submitted request beforehand.
 
 Show the resolved targets and obtain submission confirmation. A successful
 request is `submitted`, awaiting an admin quote; it also sends an admin email.
