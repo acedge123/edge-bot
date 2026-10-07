@@ -21,6 +21,28 @@ test('lookups encode the exact API queries', () => {
   assert.equal(buildRequest('requests.get', { id: brandId }).query, `?id=${brandId}`);
 });
 
+test('community member sorting is validated and forwarded without stripping counts', async () => {
+  assert.equal(buildRequest('communities.search', { query: ' TX ', limit: 50, sort: 'members' }).query,
+    '?communities=TX&limit=50&sort=members');
+  assert.equal(buildRequest('communities.search', { query: 'TX' }).query, '?communities=TX&limit=25');
+  for (const sort of ['name', 'descending', '', null, 1, true, ['members']]) {
+    await assert.rejects(() => executeAction('communities.search', { query: 'TX', sort }, {}, {
+      fetchImpl: () => assert.fail('Invalid sort must fail before network'),
+    }), /sort must be members/);
+  }
+  assert.throws(() => buildRequest('brands.search', { query: 'brand', sort: 'members' }), /Unsupported/);
+  const payload = { communities: [{ id: communityId, name: 'Test, TX', state: 'TX', location: 'Test',
+    member_count: 200, ambassador_count: 3 }], count: 1, query: 'TX' };
+  const result = await executeAction('communities.search', { query: 'TX', limit: 50, sort: 'members' }, {}, {
+    env, fetchImpl: async (url, init) => {
+      assert.equal(url, `${CAMPAIGN_API_URL}?communities=TX&limit=50&sort=members`);
+      assert.equal(init.method, 'GET');
+      return response(payload);
+    },
+  });
+  assert.deepEqual(result.response, payload);
+});
+
 test('create normalizes confirmed inputs and rejects lifecycle flags', () => {
   assert.deepEqual(buildRequest('requests.create', { ...input, product_name: ' Product ', community_ids: [communityId, communityId] }, confirmation),
     { method: 'POST', query: '', body: { ...input, ambassadors_only: false } });

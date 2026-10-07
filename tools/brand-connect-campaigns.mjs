@@ -136,11 +136,15 @@ export function buildRequest(action, input = {}, options = {}) {
   if (action === 'requests.update') return { method: 'PATCH', body: updateParams(params, options), query: '' };
   const query = new URLSearchParams();
   if (action === 'communities.search') {
-    known(params, ['query', 'limit']);
+    known(params, ['query', 'limit', 'sort']);
     query.set('communities', text(params.query, 'query', 200));
     const limit = params.limit ?? 25;
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('limit must be an integer from 1 to 50');
     query.set('limit', String(limit));
+    if (params.sort !== undefined) {
+      if (params.sort !== 'members') throw new Error('sort must be members, or omitted for default name ordering');
+      query.set('sort', params.sort);
+    }
   } else if (action === 'brands.search') {
     known(params, ['query']);
     query.set('brands', text(params.query, 'query', 200));
