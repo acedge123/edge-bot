@@ -108,6 +108,8 @@ brand: re-run lookups and check Admin Requests before retrying any write.
 ## Submit a Quote Request
 
 Read `standard-offerings.md` when selecting an offering or discussing an estimate.
+Seeding uses cumulative incremental bands, not a single volume rate applied to
+all communities: first 10 at $500 each, next 20 at $300 each, remaining at $200.
 Set `request_type` explicitly on **every submission**: it is the field that
 selects the offering and suggested quote pricing, not the campaign title.
 Use exactly `sampling`, `seeding`, or `irl_gifting`. The portal auto-labels the
