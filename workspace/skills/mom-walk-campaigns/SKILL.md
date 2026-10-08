@@ -1,6 +1,6 @@
 ---
 name: "mom-walk-campaigns"
-description: "Find communities and existing partner brands, submit or update unquoted sampling/seeding/IRL gifting quote requests, and check request status. Also routes discount-deal requests to supported Mom Walk tools."
+description: "Find communities and partner brands, create or edit draft pre-campaign interest checks and unquoted sampling/seeding/IRL gifting requests, and read status and hand-raise counts. Also routes discount-deal requests to supported Mom Walk tools."
 metadata:
   openclaw:
     requires:
@@ -110,7 +110,7 @@ brand: re-run lookups and check Admin Requests before retrying any write.
 Read `standard-offerings.md` when selecting an offering or discussing an estimate.
 Seeding uses cumulative incremental bands, not a single volume rate applied to
 all communities: first 10 at $500 each, next 20 at $300 each, remaining at $200.
-Set `request_type` explicitly on **every submission**: it is the field that
+Set `request_type` explicitly on **every normal RFQ submission**: it is the field that
 selects the offering and suggested quote pricing, not the campaign title.
 Use exactly `sampling`, `seeding`, or `irl_gifting`. The portal auto-labels the
 request from that value and the product name. PATCH may omit it to retain the
@@ -149,6 +149,49 @@ The client wraps API output as `{action,status,ok,response}`; read the record
 from `response`. Report its ID and **submitted, awaiting admin quote** status.
 Do not call it published, sent, approved, or a `pending` API status.
 
+## Prepare a Pre-Campaign
+
+For gauging interest, use the same `requests.create` with `stage: "pre_campaign"`.
+Omit stage for a normal RFQ, or explicitly use `stage: "rfq"`. Confirm the intended
+mode with the requester; do not substitute an RFQ for an interest check.
+Resolve brand and communities and obtain submission confirmation as above;
+creation still notifies admins. Product name and 1-500 real community IDs remain
+required. `request_type` is optional in this mode; omit it if undecided rather
+than guessing Sampling. If supplied, use one of the three supported offerings.
+Optional `interest_deadline` is a real YYYY-MM-DD date. Other campaign fields
+and brand-creation confirmation rules still apply. Do not calculate a price
+estimate for a pre-campaign, even when an offering or recipient count is supplied.
+
+```bash
+brand-connect-campaigns requests.create \
+  --params-json '{"stage":"pre_campaign","brand_account_id":"<resolved-brand-uuid>","product_name":"Confirmed product","community_ids":["<resolved-community-uuid>"],"interest_deadline":"2026-11-15"}' \
+  --confirm-target '<resolved-brand-uuid>'
+```
+
+Creation returns `status: "submitted"`, `stage: "pre_campaign"`; this is a saved
+interest-check draft, not an RFQ awaiting a quote. Run `requests.get` afterward
+and report `request.interest_status` (initially `draft`) and the returned ID.
+GET also returns `interest: {total, by_community}` outside `request`.
+Each community entry contains `community_name`, `moms`, and `ambassadors`;
+sum those counts for role totals. These are non-withdrawn hand raises, not
+guaranteed recipients or completed deliveries. Report absent data as unavailable,
+not zero. The API does not return each person's name; those are visible in Admin.
+GET exposes `interest_deadline`, `converted_to_draft_id`, and
+`converted_from_draft_id` when available, so follow returned IDs without guessing.
+
+Admin Requests tags/filters these as Pre-campaign; brands see Gauging interest
+with nothing to approve. Admins can close the interest check or convert it to a
+separate linked normal request, optionally keeping only communities with hand
+raises. Conversion copies campaign fields; the resulting RFQ still requires an
+offering, admin quote, brand approval, and admin send. This client has no send,
+close, or conversion actions; stage cannot be changed through PATCH. Do not
+simulate conversion by submitting a duplicate RFQ or bypass the admin controls.
+
+**Mom Walk interest-check delivery is not live yet.** The admin send button
+currently displays an unavailable popup. Saving a pre-campaign does not send
+anything or start collecting interest. Do not treat the API's `next_step` as
+proof that delivery works; report this limitation until integration is verified.
+
 ## Status and Human Gates
 
 ```bash
@@ -156,7 +199,7 @@ brand-connect-campaigns requests.get --params-json '{"id":"<returned-request-uui
 ```
 
 This maps to `GET ?id=...`, returning `response.request` with current status.
-Only the normal admin quote -> brand approval -> admin Send to Mom Walk flow
+For normal RFQs, only the admin quote -> brand approval -> admin Send to Mom Walk flow
 may move the request onward. The client exposes no approval, activation,
 participant-notification, or onward-send actions.
 
@@ -172,8 +215,10 @@ creation is not idempotent. Check Admin Requests for an existing record first.
 ## Update an Existing Agent Request
 
 Use `requests.update` to correct the same request, not a new submission, while
-it is still **submitted and unquoted**. First run `requests.get` with its real
-ID. The client also re-reads it before writing and rejects other statuses.
+a normal RFQ is **submitted and unquoted**, or a pre-campaign has
+`interest_status: "draft"` and has not been converted. First run `requests.get`
+with its real ID. The client re-reads it before writing and rejects non-draft
+pre-campaigns (including unknown interest status) and converted records.
 The backend additionally rejects requests not created via the agent API (403)
 and any request with a quote/proposal (409), even if its status says submitted.
 On a quote-lock error, stop and explain that a new request is needed; do not
@@ -183,7 +228,8 @@ Send `id` plus only the intended changes. Supported fields: `product_name`,
 `product_description`, `product_url`, `product_image_url`, `request_type`,
 `community_ids`, `target_recipients`, `start_date`, `end_date`, `instructions`,
 `ambassadors_only`, `brand_account_id`, `brand_email`, `brand_name`,
-`brand_website`, and `create_brand`. The same limits and
+`brand_website`, `create_brand`, and `interest_deadline`. `stage` is creation-only.
+The same limits and
 validation as creation apply. At least one change is required. Omitted values
 are not added by the client: in particular, omitted `ambassadors_only` does not
 become false. Null is not supported as a clearing value; empty description or
@@ -213,6 +259,14 @@ Backend caveat: PATCH currently rewrites admin `brand_notes` even when
 had instructions, obtain their current text from the requester/admin and include
 the confirmed text to retain it. GET does not expose those notes; do not invent
 them or assume omission preserves them. Report this caveat before updating.
+
+Pre-campaign PATCH caveat: if its offering is null and `request_type` is omitted,
+the backend currently defaults it to Sampling and may relabel the record. Do not
+silently choose an offering just to edit it. Warn the requester and obtain
+confirmation, or ask an admin to edit it in the portal. Stage remains pre-campaign;
+this does not authorize an estimate, quoting, or delivery. PATCH's `next_step`
+currently mentions quoting even for pre-campaigns; use a fresh GET's stage and
+interest status when reporting the actual workflow.
 
 After PATCH, run `requests.get` again. Compare the ID, product name, brand ID,
 request type, target recipients, community count, and dates against the intended

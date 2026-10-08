@@ -50,8 +50,13 @@ function date(value, name) {
 function requestFields(input, { partial = false } = {}) {
   known(input, ['brand_account_id', 'brand_email', 'brand_name', 'brand_website', 'create_brand', 'request_type', 'product_name',
     'product_description', 'product_url', 'product_image_url', 'community_ids',
-    'target_recipients', 'start_date', 'end_date', 'instructions', 'ambassadors_only']);
+    'target_recipients', 'start_date', 'end_date', 'interest_deadline', 'instructions', 'ambassadors_only',
+    ...(partial ? [] : ['stage'])]);
   const params = {};
+  if (input.stage !== undefined) {
+    if (!['rfq', 'pre_campaign'].includes(input.stage)) throw new Error('stage must be rfq or pre_campaign');
+    params.stage = input.stage;
+  }
   if (input.brand_account_id !== undefined) params.brand_account_id = uuid(input.brand_account_id, 'brand_account_id');
   if (input.brand_email !== undefined) params.brand_email = email(input.brand_email);
   if (input.brand_name !== undefined) params.brand_name = text(input.brand_name, 'brand_name', 200);
@@ -63,7 +68,7 @@ function requestFields(input, { partial = false } = {}) {
   }
   if (!partial && !params.brand_account_id && !params.brand_email && !params.brand_name) throw new Error('brand_account_id, brand_email, or brand_name is required');
   if (input.brand_website !== undefined && !params.brand_account_id && !params.brand_email && !params.brand_name) throw new Error('brand_website requires a brand identity');
-  if (!partial || input.request_type !== undefined) {
+  if ((!partial && params.stage !== 'pre_campaign') || input.request_type !== undefined) {
     if (!['sampling', 'seeding', 'irl_gifting'].includes(input.request_type)) throw new Error('request_type must be sampling, seeding, or irl_gifting');
     params.request_type = input.request_type;
   }
@@ -90,7 +95,7 @@ function requestFields(input, { partial = false } = {}) {
     }
     params.target_recipients = input.target_recipients;
   }
-  for (const key of ['start_date', 'end_date']) {
+  for (const key of ['start_date', 'end_date', 'interest_deadline']) {
     if (input[key] !== undefined) params[key] = date(input[key], key);
   }
   if (params.start_date && params.end_date && params.end_date < params.start_date) throw new Error('end_date is before start_date');
@@ -165,7 +170,13 @@ export async function executeAction(action, params = {}, options = {}, dependenc
     if (!current.ok) return { ...current, action };
     const existing = current.response.request;
     if (existing?.id !== request.body.id) throw new Error('Could not verify the current request before updating');
-    if (existing.status !== 'submitted') throw new Error('Only submitted, unquoted requests may be updated; submit a new request after quoting');
+    if (existing.stage === 'pre_campaign') {
+      if (existing.interest_status !== 'draft' || existing.converted_to_draft_id) {
+        throw new Error('Only draft pre-campaigns may be updated; stop after sending, closing, or conversion');
+      }
+    } else if (existing.status !== 'submitted') {
+      throw new Error('Only submitted, unquoted requests may be updated; submit a new request after quoting');
+    }
     const start = request.body.start_date ?? existing.start_date;
     const end = request.body.end_date ?? existing.end_date;
     if (start && end && end < start) throw new Error('end_date is before start_date on the existing request');
@@ -184,6 +195,9 @@ export async function executeAction(action, params = {}, options = {}, dependenc
   const safePayload = JSON.parse(JSON.stringify(payload).split(secret).join('[REDACTED]'));
   if (response.ok && action === 'requests.create' && (response.status !== 201 || payload.status !== 'submitted' || !UUID.test(payload.id ?? ''))) {
     throw new Error('Unexpected creation response; outcome uncertain. Check Admin Requests before retrying.');
+  }
+  if (response.ok && action === 'requests.create' && request.body.stage === 'pre_campaign' && payload.stage !== 'pre_campaign') {
+    throw new Error('Unexpected pre-campaign stage; outcome uncertain. Check Admin Requests before retrying.');
   }
   if (response.ok && action === 'requests.update' && (response.status !== 200 || payload.id !== request.body.id ||
     payload.request?.id !== request.body.id || !Array.isArray(payload.updated_fields))) {

@@ -58,6 +58,76 @@ test('ID wins over email and email-only requests require exact confirmation', ()
   assert.throws(() => buildRequest('requests.create', base, confirmation), /required/);
 });
 
+test('pre-campaign creation permits no offering and validates stage and deadline', () => {
+  const { request_type, ...base } = input;
+  const params = { ...base, stage: 'pre_campaign', interest_deadline: '2026-11-15' };
+  assert.deepEqual(buildRequest('requests.create', params, confirmation).body,
+    { ...params, ambassadors_only: false });
+  for (const offering of ['sampling', 'seeding', 'irl_gifting']) {
+    assert.equal(buildRequest('requests.create', { ...params, request_type: offering }, confirmation).body.request_type, offering);
+  }
+  for (const stage of [undefined, 'rfq']) {
+    assert.throws(() => buildRequest('requests.create', { ...base, stage }, confirmation), /request_type/);
+  }
+  for (const stage of ['draft', 'sent', '', null, true]) {
+    assert.throws(() => buildRequest('requests.create', { ...input, stage }, confirmation), /stage/);
+  }
+  assert.throws(() => buildRequest('requests.create', { ...params, request_type: null }, confirmation), /request_type/);
+  assert.throws(() => buildRequest('requests.create', { ...params, interest_deadline: '2026-02-30' }, confirmation), /interest_deadline/);
+  assert.throws(() => buildRequest('requests.create', params), /confirm-target/);
+  assert.throws(() => buildRequest('requests.update', { id: brandId, stage: 'rfq' }, confirmation), /Unsupported/);
+  assert.equal(buildRequest('requests.update', { id: brandId, interest_deadline: '2026-11-15' }, confirmation).body.interest_deadline, '2026-11-15');
+});
+
+test('pre-campaign POST stays submitted and checks the returned stage without retrying', async () => {
+  const { request_type, ...base } = input;
+  for (const stage of ['pre_campaign', 'rfq', undefined]) {
+    let calls = 0;
+    const run = () => executeAction('requests.create', { ...base, stage: 'pre_campaign' }, confirmation, {
+      env, fetchImpl: async (url, init) => {
+        calls++;
+        assert.equal(init.method, 'POST');
+        assert.equal(JSON.parse(init.body).stage, 'pre_campaign');
+        assert.ok(!Object.hasOwn(JSON.parse(init.body), 'request_type'));
+        return response({ id: brandId, status: 'submitted', stage }, 201);
+      },
+    });
+    if (stage === 'pre_campaign') assert.equal((await run()).response.stage, stage);
+    else await assert.rejects(run, /outcome uncertain/);
+    assert.equal(calls, 1);
+  }
+});
+
+test('pre-campaign reads preserve interest counts and conversion links', async () => {
+  const payload = { request: { id: brandId, stage: 'pre_campaign', interest_status: 'draft', converted_to_draft_id: null },
+    interest: { total: 3, by_community: { [communityId]: { community_name: 'Test', moms: 2, ambassadors: 1 } } } };
+  const result = await executeAction('requests.get', { id: brandId }, {}, { env, fetchImpl: async () => response(payload) });
+  assert.deepEqual(result.response, payload);
+});
+
+test('pre-campaign PATCH allows only unconverted draft interest checks', async () => {
+  for (const interest_status of ['draft', 'sent', 'closed', 'converted', null, undefined]) {
+    for (const converted_to_draft_id of [null, communityId]) {
+      let calls = 0;
+      const run = () => executeAction('requests.update', { id: brandId, product_name: 'New name' }, confirmation, {
+        env, fetchImpl: async (url, init) => {
+          calls++;
+          if (init.method === 'GET') return response({ request: { id: brandId, stage: 'pre_campaign',
+            status: 'submitted', interest_status, converted_to_draft_id } });
+          return response({ id: brandId, request: { id: brandId }, updated_fields: ['product_name'] });
+        },
+      });
+      if (interest_status === 'draft' && !converted_to_draft_id) {
+        assert.equal((await run()).ok, true);
+        assert.equal(calls, 2);
+      } else {
+        await assert.rejects(run, /Only draft pre-campaigns/);
+        assert.equal(calls, 1);
+      }
+    }
+  }
+});
+
 test('invalid inputs fail before authentication or network', async () => {
   const changes = [
     { product_name: '' }, { product_name: 'x'.repeat(201) }, { request_type: 'discount' },
