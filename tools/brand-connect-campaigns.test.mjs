@@ -21,6 +21,17 @@ test('lookups encode the exact API queries', () => {
   assert.equal(buildRequest('requests.get', { id: brandId }).query, `?id=${brandId}`);
 });
 
+test('community search accepts 1-500 results and rejects invalid limits before network', async () => {
+  for (const limit of [1, 25, 50, 51, 499, 500]) {
+    assert.equal(buildRequest('communities.search', { query: 'TX', limit }).query, `?communities=TX&limit=${limit}`);
+  }
+  for (const limit of [0, -1, 501, 1.5, '500', null, true]) {
+    await assert.rejects(() => executeAction('communities.search', { query: 'TX', limit }, {}, {
+      fetchImpl: () => assert.fail('Invalid limit must fail before network'),
+    }), /limit must be an integer from 1 to 500/);
+  }
+});
+
 test('community member sorting is validated and forwarded without stripping counts', async () => {
   assert.equal(buildRequest('communities.search', { query: ' TX ', limit: 50, sort: 'members' }).query,
     '?communities=TX&limit=50&sort=members');
@@ -33,9 +44,9 @@ test('community member sorting is validated and forwarded without stripping coun
   assert.throws(() => buildRequest('brands.search', { query: 'brand', sort: 'members' }), /Unsupported/);
   const payload = { communities: [{ id: communityId, name: 'Test, TX', state: 'TX', location: 'Test',
     member_count: 200, ambassador_count: 3 }], count: 1, query: 'TX' };
-  const result = await executeAction('communities.search', { query: 'TX', limit: 50, sort: 'members' }, {}, {
+  const result = await executeAction('communities.search', { query: 'TX', limit: 500, sort: 'members' }, {}, {
     env, fetchImpl: async (url, init) => {
-      assert.equal(url, `${CAMPAIGN_API_URL}?communities=TX&limit=50&sort=members`);
+      assert.equal(url, `${CAMPAIGN_API_URL}?communities=TX&limit=500&sort=members`);
       assert.equal(init.method, 'GET');
       return response(payload);
     },
@@ -138,7 +149,7 @@ test('invalid inputs fail before authentication or network', async () => {
     { instructions: 'x'.repeat(4001) }, { ambassadors_only: 'false' },
   ];
   for (const change of changes) await assert.rejects(() => executeAction('requests.create', { ...input, ...change }, confirmation, { fetchImpl: () => assert.fail('No network for invalid inputs') }));
-  for (const params of [{ query: '' }, { query: 'denver', limit: 51 }, { query: 'denver', limit: '25' }, { query: 'denver', url: 'https://evil.example' }]) assert.throws(() => buildRequest('communities.search', params));
+  for (const params of [{ query: '' }, { query: 'denver', limit: 501 }, { query: 'denver', limit: '25' }, { query: 'denver', url: 'https://evil.example' }]) assert.throws(() => buildRequest('communities.search', params));
 });
 
 test('uses sponsor auth with pinned URL and blocks redirect credential leakage', async () => {

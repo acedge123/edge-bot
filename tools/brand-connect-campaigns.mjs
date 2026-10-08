@@ -8,6 +8,7 @@ export const CAMPAIGN_API_URL = 'https://evthfmqawotwbbkxfxep.supabase.co/functi
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_COMMUNITIES = 500;
+const MAX_COMMUNITY_SEARCH_RESULTS = 500;
 const MAX_RECIPIENTS = 1_000_000;
 
 function object(value) {
@@ -143,8 +144,10 @@ export function buildRequest(action, input = {}, options = {}) {
   if (action === 'communities.search') {
     known(params, ['query', 'limit', 'sort']);
     query.set('communities', text(params.query, 'query', 200));
-    const limit = params.limit ?? 25;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('limit must be an integer from 1 to 50');
+    const limit = params.limit === undefined ? 25 : params.limit;
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_COMMUNITY_SEARCH_RESULTS) {
+      throw new Error(`limit must be an integer from 1 to ${MAX_COMMUNITY_SEARCH_RESULTS}`);
+    }
     query.set('limit', String(limit));
     if (params.sort !== undefined) {
       if (params.sort !== 'members') throw new Error('sort must be members, or omitted for default name ordering');

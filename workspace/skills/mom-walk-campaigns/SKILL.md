@@ -30,22 +30,22 @@ brand-connect-campaigns communities.search --params-json '{"query":"denver","lim
 
 This maps to `GET ?communities=denver&limit=25`. The response contains
 `communities: [{id,name,state,location,member_count,ambassador_count}]`.
-Limit defaults to 25, maximum 50. Optional `sort: "members"` requests largest
+Limit defaults to 25, maximum 500. Optional `sort: "members"` requests largest
 member counts first; omit it for default alphabetical name ordering.
 
 ```bash
-brand-connect-campaigns communities.search --params-json '{"query":"TX","sort":"members","limit":50}'
+brand-connect-campaigns communities.search --params-json '{"query":"TX","sort":"members","limit":500}'
 ```
 
 For the largest 20, take the first 20 returned rows after confirming the counts
 are numeric and descending. Sum `ambassador_count` for those selected rows;
 do not confuse it with `member_count` or assume one ambassador per community.
 Counts describe communities, not guaranteed campaign recipients.
-For multiple states, search each state separately (up to 50 results per call).
+For multiple states, search each state separately (up to 500 results per call).
 Search matches names, locations, and states, so verify each row's `state`
 against the intended state before selection. If filtering leaves fewer than 20
 rows, report that limitation instead of claiming a complete statewide top 20.
-Deduplicate community IDs when combining results. Report when the 50-row cap
+Deduplicate community IDs when combining results. Report when the requested limit
 is reached; this endpoint does not expose pagination for community search.
 
 Select the intended rows, clarifying ambiguous matches with the requester.
