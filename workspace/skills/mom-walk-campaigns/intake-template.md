@@ -2,16 +2,19 @@
 
 ```text
 Brand name (for lookup):
+Mode: normal RFQ / pre-campaign (confirm intent; pre-campaign uses stage: pre_campaign)
 Brand email (optional; may be absent on account):
 Brand website (optional HTTPS):
 Permit pipeline brand creation if missing: yes/no (default no)
-Request type: sampling / seeding / irl_gifting
+Request type: sampling / seeding / irl_gifting (optional for pre-campaign)
+Interest deadline (optional YYYY-MM-DD):
 Product name (required, max 200 characters):
 Community names/cities (for lookup):
 Product description (optional, max 4000 characters):
 Product URL (optional HTTPS):
-Product image URL (optional HTTPS):
-Target recipients (required in practice for Sampling; otherwise optional integer):
+Product image URL (optional public non-expiring HTTPS; 800x400 JPG/PNG/WebP under 500 KB):
+Local photo attachment (optional alternative; JPG/PNG/WebP up to 5 MB; confirm public hosting):
+Target recipients (required in practice for normal Sampling RFQ; otherwise optional integer):
 Start date (optional YYYY-MM-DD):
 End date (optional YYYY-MM-DD):
 Instructions for admin (optional, max 4000 characters):
@@ -37,11 +40,22 @@ does not authorize creating a test request.
 
 Discount codes/deals are a separate flow, not this quote-request schema.
 
-Choose `request_type` explicitly; the title does not select the offering or
+For normal RFQs choose `request_type` explicitly; the title does not select the offering or
 pricing. Read `standard-offerings.md` for suggested rates. Count unique resolved
 communities for Seeding and IRL Gifting; use confirmed `target_recipients` for
 Sampling. Treat all calculated amounts as estimates, excluding product value
 and shipping. Submission creates an RFQ, not a charge or an approved campaign.
+
+For pre-campaigns set `stage: "pre_campaign"`; offering selection is optional
+and there is no price estimate. It is saved as submitted with interest status
+draft, not awaiting a quote. Saving does not deliver an interest check; confirm
+the admin handoff succeeds before claiming delivery. Read counts with `requests.get`.
+Admins close/convert it in the portal; the client cannot send or convert it.
+
+Use `--image-file` to attach a local photo without a public URL, including an
+image-only PATCH to an existing editable draft. The portal hosts it permanently.
+Aim for 800x400 under 500 KB; the upload API's 5 MB maximum is not the display
+spec. Upload bytes take precedence over an image URL if both are supplied.
 
 ## Correct an Existing Request
 
@@ -49,6 +63,10 @@ Provide the returned request ID and only the fields to change. Before writing,
 verify it remains submitted/unquoted, show the changes, and obtain confirmation
 of that request ID. If replacing communities, provide the complete desired set
 (including communities to retain). Resolve any new brand or community first.
+
+For pre-campaigns instead verify interest status is draft and no linked conversion
+exists. Stage cannot be edited by PATCH. Read the pre-campaign PATCH caveat in
+`SKILL.md`: a null offering currently defaults to Sampling on update.
 
 PATCH currently rewrites admin notes even if instructions are omitted. Confirm
 any earlier instructions that must be retained and include them explicitly.

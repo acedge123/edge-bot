@@ -91,6 +91,7 @@ node --test "$ROOT_DIR/workspace/scripts/echelon-app-signal-policy.test.mjs" >/d
 node --test "$ROOT_DIR/workspace/scripts/echelon-session-key.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-capability-query.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-workbook-attachment.test.mjs" >/dev/null
+node --test "$ROOT_DIR/workspace/scripts/echelon-image-attachment.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-reply-capture.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/echelon-slack-delivery.test.mjs" >/dev/null
 node --test "$ROOT_DIR/workspace/scripts/repo-c-lane-a.test.mjs" >/dev/null

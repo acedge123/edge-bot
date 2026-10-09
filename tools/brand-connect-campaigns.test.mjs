@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, CAMPAIGN_API_URL, buildRequest, executeAction, parseCliArgs } from './brand-connect-campaigns.mjs';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ACTIONS, CAMPAIGN_API_URL, MAX_IMAGE_BYTES, buildRequest, executeAction, loadImageFile, parseCliArgs } from './brand-connect-campaigns.mjs';
 
 const brandId = '11111111-1111-4111-8111-111111111111';
 const communityId = '22222222-2222-4222-8222-222222222222';
@@ -8,6 +11,92 @@ const input = { brand_account_id: brandId, request_type: 'sampling', product_nam
 const confirmation = { confirmTarget: brandId };
 const env = { ENRICHMENT_AGENT_KEY: 'private-outreach-key' };
 const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
+const png = Buffer.from('89504e470d0a1a0a00000000', 'hex');
+const image = { image_base64: png.toString('base64'), image_content_type: 'image/png' };
+
+test('image fields support raw base64 and data URLs, with upload winning over URL', () => {
+  for (const [type, bytes] of [['image/jpeg', Buffer.from('ffd8ffe00000', 'hex')],
+    ['image/webp', Buffer.from('524946460400000057454250', 'hex')]]) {
+    assert.equal(buildRequest('requests.update', { id: brandId, image_base64: bytes.toString('base64'), image_content_type: type }, confirmation).body.image_content_type, type);
+  }
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, ...image }, confirmation).body, { id: brandId, ...image });
+  const body = buildRequest('requests.create', { ...input, image_base64: `data:image/png;base64,${image.image_base64}`,
+    product_image_url: 'https://example.com/old.png' }, confirmation).body;
+  assert.equal(body.image_base64, image.image_base64);
+  assert.equal(body.image_content_type, 'image/png');
+  assert.equal(body.product_image_url, 'https://example.com/old.png');
+  const bytes = Buffer.alloc(MAX_IMAGE_BYTES); png.copy(bytes);
+  assert.equal(buildRequest('requests.update', { id: brandId, image_base64: bytes.toString('base64'), image_content_type: 'image/png' }, confirmation).body.image_base64.length, bytes.toString('base64').length);
+});
+
+test('local photo creation sends one POST and never retries a failed upload', async () => {
+  for (const status of [201, 400, 500]) {
+    let calls = 0;
+    const result = await executeAction('requests.create', { ...input, stage: 'pre_campaign' },
+      { ...confirmation, imageFile: '/photo.png' }, { env, loadImageFile: async () => image,
+        fetchImpl: async (url, init) => {
+          calls++;
+          assert.equal(init.method, 'POST');
+          assert.deepEqual(JSON.parse(init.body), { ...input, stage: 'pre_campaign', ...image, ambassadors_only: false });
+          return response(status === 201 ? { id: brandId, status: 'submitted', stage: 'pre_campaign' } : { error: 'Upload failed' }, status);
+        },
+      });
+    assert.equal(calls, 1);
+    assert.equal(result.ok, status === 201);
+  }
+});
+
+test('bad image data fails before network', async () => {
+  for (const extra of [{ image_content_type: 'image/png' }, { image_base64: '' },
+    { ...image, image_base64: 'not base64!' }, { ...image, image_content_type: 'image/jpeg' },
+    { ...image, image_content_type: 'image/gif' }, { image_base64: image.image_base64 },
+    { ...image, image_base64: 'data:image/jpeg;base64,' + image.image_base64 },
+    { ...image, image_base64: Buffer.alloc(MAX_IMAGE_BYTES + 1).toString('base64') }]) {
+    await assert.rejects(() => executeAction('requests.update', { id: brandId, ...extra }, confirmation, {
+      fetchImpl: () => assert.fail('Invalid images must not reach network'),
+    }), /image|Image/);
+  }
+});
+
+test('local file option detects type from bytes and rejects missing, oversized or invalid files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'campaign-image-'));
+  try {
+    const path = join(dir, 'photo.wrong-extension');
+    await writeFile(path, png);
+    assert.deepEqual(await loadImageFile(path), image);
+    for (const bytes of [Buffer.alloc(0), Buffer.from('not an image'), Buffer.alloc(MAX_IMAGE_BYTES + 1)]) {
+      await writeFile(path, bytes);
+      await assert.rejects(() => loadImageFile(path), /Image/);
+    }
+    await assert.rejects(() => loadImageFile(join(dir, 'missing.png')), /ENOENT/);
+    await assert.rejects(() => loadImageFile(dir), /regular|EISDIR/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+  assert.equal(parseCliArgs(['requests.update', '--image-file', '/tmp/photo.png']).options.imageFile, '/tmp/photo.png');
+  assert.throws(() => parseCliArgs(['requests.update', '--image-file']), /Invalid CLI flag/);
+});
+
+test('local image PATCH preserves preflight, locks, confirmation and redacts bytes in output', async () => {
+  for (const interest_status of ['draft', 'sent']) {
+    let calls = 0;
+    const run = () => executeAction('requests.update', { id: brandId }, { ...confirmation, imageFile: '/photo.png' }, {
+      env, loadImageFile: async () => image, fetchImpl: async (url, init) => {
+        calls++;
+        if (init.method === 'GET') return response({ request: { id: brandId, stage: 'pre_campaign', interest_status } });
+        assert.deepEqual(JSON.parse(init.body), { id: brandId, ...image });
+        return response({ id: brandId, request: { id: brandId }, updated_fields: ['product_image_url'], echoed: image.image_base64 });
+      },
+    });
+    if (interest_status === 'draft') {
+      assert.equal((await run()).response.echoed, '[IMAGE REDACTED]');
+      assert.equal(calls, 2);
+    } else { await assert.rejects(run, /Only draft/); assert.equal(calls, 1); }
+  }
+  await assert.rejects(() => executeAction('requests.update', { id: brandId }, { imageFile: '/photo.png' }, {
+    loadImageFile: async () => image, fetchImpl: () => assert.fail('Confirmation required'),
+  }), /confirm-target/);
+  await assert.rejects(() => executeAction('requests.get', { id: brandId }, { imageFile: '/photo.png' }), /only supported/);
+  await assert.rejects(() => executeAction('requests.update', { id: brandId, ...image }, { ...confirmation, imageFile: '/photo.png' }), /not both/);
+});
 
 test('registry exposes only lookup, submission, and status', () => {
   assert.deepEqual(ACTIONS, ['communities.search', 'brands.search', 'brands.resolve-email', 'requests.create', 'requests.get', 'requests.update']);
@@ -19,6 +108,70 @@ test('lookups encode the exact API queries', () => {
   assert.equal(buildRequest('brands.search', { query: 'good crisp' }).query, '?brands=good+crisp');
   assert.equal(buildRequest('brands.resolve-email', { brand_email: ' Billing@Brand.com ' }).query, '?brand_email=billing%40brand.com');
   assert.equal(buildRequest('requests.get', { id: brandId }).query, `?id=${brandId}`);
+});
+
+test('community search accepts 1-500 results and rejects invalid limits before network', async () => {
+  for (const limit of [1, 25, 50, 51, 499, 500]) {
+    assert.equal(buildRequest('communities.search', { query: 'TX', limit }).query, `?communities=TX&limit=${limit}`);
+  }
+  for (const limit of [0, -1, 501, 1.5, '500', null, true]) {
+    await assert.rejects(() => executeAction('communities.search', { query: 'TX', limit }, {}, {
+      fetchImpl: () => assert.fail('Invalid limit must fail before network'),
+    }), /limit must be an integer from 1 to 500/);
+  }
+});
+
+test('radius searches encode name or coordinate anchors with sorting and limits', () => {
+  assert.equal(buildRequest('communities.search', { query: ' Scottsdale ', radius_miles: 25, limit: 500 }).query,
+    '?communities=Scottsdale&radius_miles=25&limit=500');
+  assert.equal(buildRequest('communities.search', { lat: 33.49, lng: -111.92, radius_miles: 25, limit: 500, sort: 'members' }).query,
+    '?lat=33.49&lng=-111.92&radius_miles=25&limit=500&sort=members');
+  for (const radius_miles of [0.5, 25, 250]) {
+    assert.ok(buildRequest('communities.search', { lat: 0, lng: 0, radius_miles }).query.includes(`radius_miles=${radius_miles}`));
+  }
+  assert.ok(buildRequest('communities.search', { lat: -90, lng: 180, radius_miles: 1 }).query.includes('lat=-90&lng=180'));
+});
+
+test('invalid radius inputs fail before authentication or network', async () => {
+  const invalid = [
+    ...[0, -1, 251, NaN, Infinity, '25', null, true].map(radius_miles => ({ query: 'Scottsdale', radius_miles })),
+    { radius_miles: 25 }, { lat: 33, radius_miles: 25 }, { lng: -111, radius_miles: 25 },
+    { lat: 33, lng: -111 }, { query: 'Scottsdale', lat: 33, lng: -111, radius_miles: 25 },
+    ...[91, -91, NaN, Infinity, '33', null, true].map(lat => ({ lat, lng: -111, radius_miles: 25 })),
+    ...[181, -181, NaN, Infinity, '-111', null, true].map(lng => ({ lat: 33, lng, radius_miles: 25 })),
+  ];
+  for (const params of invalid) {
+    await assert.rejects(() => executeAction('communities.search', params, {}, {
+      fetchImpl: () => assert.fail('Invalid geographic inputs must not reach network'),
+    }), /radius_miles|lat|lng|anchor query|query must/);
+  }
+  assert.throws(() => buildRequest('brands.search', { query: 'brand', radius_miles: 25 }), /Unsupported/);
+});
+
+test('radius responses preserve anchor, distances, and counts unchanged', async () => {
+  const payload = { anchor: { name: 'Scottsdale', lat: 33.49, lng: -111.92 }, radius_miles: 25, count: 1,
+    communities: [{ id: communityId, name: 'Test', state: 'AZ', location: 'Test', distance_miles: 2.5,
+      member_count: 200, ambassador_count: 3 }] };
+  const result = await executeAction('communities.search', { query: 'Scottsdale', radius_miles: 25 }, {}, {
+    env, fetchImpl: async (url, init) => {
+      assert.equal(url, `${CAMPAIGN_API_URL}?communities=Scottsdale&radius_miles=25&limit=25`);
+      assert.equal(init.method, 'GET');
+      assert.equal(init.headers.Authorization, `Bearer ${env.ENRICHMENT_AGENT_KEY}`);
+      return response(payload);
+    },
+  });
+  assert.deepEqual(result.response, payload);
+});
+
+test('photos use product_image_url for RFQ, pre-campaign and PATCH, not downstream image_url', () => {
+  const product_image_url = 'https://example.com/product.webp';
+  for (const stage of ['rfq', 'pre_campaign']) {
+    assert.equal(buildRequest('requests.create', { ...input, stage, product_image_url }, confirmation).body.product_image_url, product_image_url);
+  }
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, product_image_url }, confirmation).body,
+    { id: brandId, product_image_url });
+  assert.throws(() => buildRequest('requests.create', { ...input, image_url: product_image_url }, confirmation), /Unsupported/);
+  assert.throws(() => buildRequest('requests.update', { id: brandId, product_image_url: null }, confirmation), /product_image_url/);
 });
 
 test('community member sorting is validated and forwarded without stripping counts', async () => {
@@ -33,9 +186,9 @@ test('community member sorting is validated and forwarded without stripping coun
   assert.throws(() => buildRequest('brands.search', { query: 'brand', sort: 'members' }), /Unsupported/);
   const payload = { communities: [{ id: communityId, name: 'Test, TX', state: 'TX', location: 'Test',
     member_count: 200, ambassador_count: 3 }], count: 1, query: 'TX' };
-  const result = await executeAction('communities.search', { query: 'TX', limit: 50, sort: 'members' }, {}, {
+  const result = await executeAction('communities.search', { query: 'TX', limit: 500, sort: 'members' }, {}, {
     env, fetchImpl: async (url, init) => {
-      assert.equal(url, `${CAMPAIGN_API_URL}?communities=TX&limit=50&sort=members`);
+      assert.equal(url, `${CAMPAIGN_API_URL}?communities=TX&limit=500&sort=members`);
       assert.equal(init.method, 'GET');
       return response(payload);
     },
@@ -58,6 +211,76 @@ test('ID wins over email and email-only requests require exact confirmation', ()
   assert.throws(() => buildRequest('requests.create', base, confirmation), /required/);
 });
 
+test('pre-campaign creation permits no offering and validates stage and deadline', () => {
+  const { request_type, ...base } = input;
+  const params = { ...base, stage: 'pre_campaign', interest_deadline: '2026-11-15' };
+  assert.deepEqual(buildRequest('requests.create', params, confirmation).body,
+    { ...params, ambassadors_only: false });
+  for (const offering of ['sampling', 'seeding', 'irl_gifting']) {
+    assert.equal(buildRequest('requests.create', { ...params, request_type: offering }, confirmation).body.request_type, offering);
+  }
+  for (const stage of [undefined, 'rfq']) {
+    assert.throws(() => buildRequest('requests.create', { ...base, stage }, confirmation), /request_type/);
+  }
+  for (const stage of ['draft', 'sent', '', null, true]) {
+    assert.throws(() => buildRequest('requests.create', { ...input, stage }, confirmation), /stage/);
+  }
+  assert.throws(() => buildRequest('requests.create', { ...params, request_type: null }, confirmation), /request_type/);
+  assert.throws(() => buildRequest('requests.create', { ...params, interest_deadline: '2026-02-30' }, confirmation), /interest_deadline/);
+  assert.throws(() => buildRequest('requests.create', params), /confirm-target/);
+  assert.throws(() => buildRequest('requests.update', { id: brandId, stage: 'rfq' }, confirmation), /Unsupported/);
+  assert.equal(buildRequest('requests.update', { id: brandId, interest_deadline: '2026-11-15' }, confirmation).body.interest_deadline, '2026-11-15');
+});
+
+test('pre-campaign POST stays submitted and checks the returned stage without retrying', async () => {
+  const { request_type, ...base } = input;
+  for (const stage of ['pre_campaign', 'rfq', undefined]) {
+    let calls = 0;
+    const run = () => executeAction('requests.create', { ...base, stage: 'pre_campaign' }, confirmation, {
+      env, fetchImpl: async (url, init) => {
+        calls++;
+        assert.equal(init.method, 'POST');
+        assert.equal(JSON.parse(init.body).stage, 'pre_campaign');
+        assert.ok(!Object.hasOwn(JSON.parse(init.body), 'request_type'));
+        return response({ id: brandId, status: 'submitted', stage }, 201);
+      },
+    });
+    if (stage === 'pre_campaign') assert.equal((await run()).response.stage, stage);
+    else await assert.rejects(run, /outcome uncertain/);
+    assert.equal(calls, 1);
+  }
+});
+
+test('pre-campaign reads preserve interest counts and conversion links', async () => {
+  const payload = { request: { id: brandId, stage: 'pre_campaign', interest_status: 'draft', converted_to_draft_id: null },
+    interest: { total: 3, by_community: { [communityId]: { community_name: 'Test', moms: 2, ambassadors: 1 } } } };
+  const result = await executeAction('requests.get', { id: brandId }, {}, { env, fetchImpl: async () => response(payload) });
+  assert.deepEqual(result.response, payload);
+});
+
+test('pre-campaign PATCH allows only unconverted draft interest checks', async () => {
+  for (const interest_status of ['draft', 'sent', 'closed', 'converted', null, undefined]) {
+    for (const converted_to_draft_id of [null, communityId]) {
+      let calls = 0;
+      const run = () => executeAction('requests.update', { id: brandId, product_name: 'New name' }, confirmation, {
+        env, fetchImpl: async (url, init) => {
+          calls++;
+          if (init.method === 'GET') return response({ request: { id: brandId, stage: 'pre_campaign',
+            status: 'submitted', interest_status, converted_to_draft_id } });
+          return response({ id: brandId, request: { id: brandId }, updated_fields: ['product_name'] });
+        },
+      });
+      if (interest_status === 'draft' && !converted_to_draft_id) {
+        assert.equal((await run()).ok, true);
+        assert.equal(calls, 2);
+      } else {
+        await assert.rejects(run, /Only draft pre-campaigns/);
+        assert.equal(calls, 1);
+      }
+    }
+  }
+});
+
 test('invalid inputs fail before authentication or network', async () => {
   const changes = [
     { product_name: '' }, { product_name: 'x'.repeat(201) }, { request_type: 'discount' },
@@ -68,7 +291,7 @@ test('invalid inputs fail before authentication or network', async () => {
     { instructions: 'x'.repeat(4001) }, { ambassadors_only: 'false' },
   ];
   for (const change of changes) await assert.rejects(() => executeAction('requests.create', { ...input, ...change }, confirmation, { fetchImpl: () => assert.fail('No network for invalid inputs') }));
-  for (const params of [{ query: '' }, { query: 'denver', limit: 51 }, { query: 'denver', limit: '25' }, { query: 'denver', url: 'https://evil.example' }]) assert.throws(() => buildRequest('communities.search', params));
+  for (const params of [{ query: '' }, { query: 'denver', limit: 501 }, { query: 'denver', limit: '25' }, { query: 'denver', url: 'https://evil.example' }]) assert.throws(() => buildRequest('communities.search', params));
 });
 
 test('uses sponsor auth with pinned URL and blocks redirect credential leakage', async () => {
