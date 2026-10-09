@@ -52,6 +52,40 @@ Select the intended rows, clarifying ambiguous matches with the requester.
 Never fabricate IDs or substitute a similar city. For a test community, search
 its name and verify the actual row; there is no automatic test fallback.
 
+### Radius Search
+
+Use the same action with a numeric `radius_miles` greater than 0 and at most
+250. Supply either an anchor `query`, or both numeric `lat` (-90 to 90) and
+`lng` (-180 to 180). Do not combine a name and coordinates. Coordinates require
+a radius; a normal text lookup still needs only `query`. Limits remain 1-500
+(default 25); fractional radii and coordinates are supported.
+
+```bash
+brand-connect-campaigns communities.search --params-json '{"query":"Scottsdale","radius_miles":25,"limit":500}'
+brand-connect-campaigns communities.search --params-json '{"lat":33.49,"lng":-111.92,"radius_miles":25,"limit":500}'
+```
+
+These map to `?communities=Scottsdale&radius_miles=25&limit=500` or
+`?lat=33.49&lng=-111.92&radius_miles=25&limit=500`. The response preserves
+`anchor: {name?,lat,lng}`, effective `radius_miles`, `count`, and communities
+with `distance_miles`, `member_count`, and `ambassador_count`. Default radius
+ordering is nearest-first; optional `sort: "members"` orders by largest member
+count instead, without removing distance values. Do not claim nearest-first
+ordering when requesting member sorting.
+
+Confirm the returned anchor name/coordinates and radius against the requested
+town before selecting campaign communities. The API prefers an exact name but
+can choose the first partial match; a successful response is not proof of the
+right town. If ambiguous, clarify or use confirmed coordinates, never invent
+coordinates or silently accept another anchor. A name without coordinates can
+return 404; explain this rather than substituting a different town.
+Radius results may cross state lines, so apply a state restriction only when
+requested, not automatically. Communities without coordinates are excluded;
+distances are rounded geographic distances, not driving distances. Report when
+the requested result limit is reached; do not claim exhaustive geographic
+coverage or all moms within the radius. These are community centers and counts,
+not individual member locations or confirmed campaign recipients.
+
 ## Resolve the Existing Brand
 
 ```bash
@@ -131,6 +165,23 @@ Optional fields: `product_description` and `instructions` (up to 4000 characters
 (YYYY-MM-DD; end not before start), and `ambassadors_only` (boolean; default false).
 Omit unknown optional values rather than inventing them.
 
+### Campaign Photo
+
+Set `product_image_url` on creation or an editable request's PATCH. Use a public,
+non-expiring HTTPS link to an 800x400 (2:1) JPG, PNG, or WebP image under 500 KB.
+Do not use signed/expiring links, login-protected URLs, or an HTML page instead
+of an image. Verify access and image dimensions/size when possible; otherwise
+report those properties as unverified. The client validates the URL, not its
+contents, dimensions, expiry, or file size.
+
+The portal now forwards this field automatically as `image_url` in both admin
+interest-check sends and accepted-quote official campaign sends. The photo
+appears above the opportunity text. Do not pass `image_url` to this client;
+it is a downstream handoff field, not an agent submission parameter. Keep the
+same approval/admin-send gates: adding a photo does not authorize sending.
+Null photo removal is not supported by the agent's current PATCH schema;
+ask an admin to remove it rather than sending null or inventing a clearing field.
+
 Show the selected brand, communities, product, type, and dates to the requester.
 Obtain confirmation to submit: **creation sends an admin notification email**,
 even though it does not deliver anything to Mom Walk participants.
@@ -187,10 +238,12 @@ offering, admin quote, brand approval, and admin send. This client has no send,
 close, or conversion actions; stage cannot be changed through PATCH. Do not
 simulate conversion by submitting a duplicate RFQ or bypass the admin controls.
 
-**Mom Walk interest-check delivery is not live yet.** The admin send button
-currently displays an unavailable popup. Saving a pre-campaign does not send
-anything or start collecting interest. Do not treat the API's `next_step` as
-proof that delivery works; report this limitation until integration is verified.
+The portal's send functions now include the photo. Saving a pre-campaign still
+does not send anything or start collecting interest. Do not treat deployed
+portal functions or the API's `next_step` as proof of Mom Walk receiver availability.
+The handoff doc still describes an unavailable popup if the receiver returns
+404. Report actual admin send success/failure when available; do not claim
+delivery until verified. Agent calls remain submission/update/lookup only.
 
 ## Status and Human Gates
 

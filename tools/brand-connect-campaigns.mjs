@@ -9,6 +9,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_COMMUNITIES = 500;
 const MAX_COMMUNITY_SEARCH_RESULTS = 500;
+const MAX_RADIUS_MILES = 250;
 const MAX_RECIPIENTS = 1_000_000;
 
 function object(value) {
@@ -142,15 +143,34 @@ export function buildRequest(action, input = {}, options = {}) {
   if (action === 'requests.update') return { method: 'PATCH', body: updateParams(params, options), query: '' };
   const query = new URLSearchParams();
   if (action === 'communities.search') {
-    known(params, ['query', 'limit', 'sort']);
-    query.set('communities', text(params.query, 'query', 200));
+    known(params, ['query', 'limit', 'sort', 'lat', 'lng', 'radius_miles']);
+    const hasCoordinates = params.lat !== undefined || params.lng !== undefined;
+    if (hasCoordinates) {
+      if (params.query !== undefined) throw new Error('Use an anchor query or coordinates, not both');
+      for (const [key, bound] of [['lat', 90], ['lng', 180]]) {
+        if (typeof params[key] !== 'number' || !Number.isFinite(params[key]) || Math.abs(params[key]) > bound) {
+          throw new Error(`${key} must be a finite number from -${bound} to ${bound}; provide both lat and lng`);
+        }
+        query.set(key, String(params[key]));
+      }
+      if (params.radius_miles === undefined) throw new Error('Coordinates require radius_miles');
+    } else {
+      query.set('communities', text(params.query, 'query', 200));
+    }
+    if (params.radius_miles !== undefined) {
+      if (typeof params.radius_miles !== 'number' || !Number.isFinite(params.radius_miles) ||
+        params.radius_miles <= 0 || params.radius_miles > MAX_RADIUS_MILES) {
+        throw new Error(`radius_miles must be a finite number greater than 0 and at most ${MAX_RADIUS_MILES}`);
+      }
+      query.set('radius_miles', String(params.radius_miles));
+    }
     const limit = params.limit === undefined ? 25 : params.limit;
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_COMMUNITY_SEARCH_RESULTS) {
       throw new Error(`limit must be an integer from 1 to ${MAX_COMMUNITY_SEARCH_RESULTS}`);
     }
     query.set('limit', String(limit));
     if (params.sort !== undefined) {
-      if (params.sort !== 'members') throw new Error('sort must be members, or omitted for default name ordering');
+      if (params.sort !== 'members') throw new Error('sort must be members, or omitted for default name/distance ordering');
       query.set('sort', params.sort);
     }
   } else if (action === 'brands.search') {

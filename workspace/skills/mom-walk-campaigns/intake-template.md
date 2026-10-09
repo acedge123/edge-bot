@@ -12,7 +12,7 @@ Product name (required, max 200 characters):
 Community names/cities (for lookup):
 Product description (optional, max 4000 characters):
 Product URL (optional HTTPS):
-Product image URL (optional HTTPS):
+Product image URL (optional public non-expiring HTTPS; 800x400 JPG/PNG/WebP under 500 KB):
 Target recipients (required in practice for normal Sampling RFQ; otherwise optional integer):
 Start date (optional YYYY-MM-DD):
 End date (optional YYYY-MM-DD):
@@ -47,8 +47,8 @@ and shipping. Submission creates an RFQ, not a charge or an approved campaign.
 
 For pre-campaigns set `stage: "pre_campaign"`; offering selection is optional
 and there is no price estimate. It is saved as submitted with interest status
-draft, not awaiting a quote. Mom Walk interest-check delivery is unavailable
-until their integration is built. Read hand-raise counts with `requests.get`.
+draft, not awaiting a quote. Saving does not deliver an interest check; confirm
+the admin handoff succeeds before claiming delivery. Read counts with `requests.get`.
 Admins close/convert it in the portal; the client cannot send or convert it.
 
 ## Correct an Existing Request

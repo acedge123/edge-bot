@@ -32,6 +32,59 @@ test('community search accepts 1-500 results and rejects invalid limits before n
   }
 });
 
+test('radius searches encode name or coordinate anchors with sorting and limits', () => {
+  assert.equal(buildRequest('communities.search', { query: ' Scottsdale ', radius_miles: 25, limit: 500 }).query,
+    '?communities=Scottsdale&radius_miles=25&limit=500');
+  assert.equal(buildRequest('communities.search', { lat: 33.49, lng: -111.92, radius_miles: 25, limit: 500, sort: 'members' }).query,
+    '?lat=33.49&lng=-111.92&radius_miles=25&limit=500&sort=members');
+  for (const radius_miles of [0.5, 25, 250]) {
+    assert.ok(buildRequest('communities.search', { lat: 0, lng: 0, radius_miles }).query.includes(`radius_miles=${radius_miles}`));
+  }
+  assert.ok(buildRequest('communities.search', { lat: -90, lng: 180, radius_miles: 1 }).query.includes('lat=-90&lng=180'));
+});
+
+test('invalid radius inputs fail before authentication or network', async () => {
+  const invalid = [
+    ...[0, -1, 251, NaN, Infinity, '25', null, true].map(radius_miles => ({ query: 'Scottsdale', radius_miles })),
+    { radius_miles: 25 }, { lat: 33, radius_miles: 25 }, { lng: -111, radius_miles: 25 },
+    { lat: 33, lng: -111 }, { query: 'Scottsdale', lat: 33, lng: -111, radius_miles: 25 },
+    ...[91, -91, NaN, Infinity, '33', null, true].map(lat => ({ lat, lng: -111, radius_miles: 25 })),
+    ...[181, -181, NaN, Infinity, '-111', null, true].map(lng => ({ lat: 33, lng, radius_miles: 25 })),
+  ];
+  for (const params of invalid) {
+    await assert.rejects(() => executeAction('communities.search', params, {}, {
+      fetchImpl: () => assert.fail('Invalid geographic inputs must not reach network'),
+    }), /radius_miles|lat|lng|anchor query|query must/);
+  }
+  assert.throws(() => buildRequest('brands.search', { query: 'brand', radius_miles: 25 }), /Unsupported/);
+});
+
+test('radius responses preserve anchor, distances, and counts unchanged', async () => {
+  const payload = { anchor: { name: 'Scottsdale', lat: 33.49, lng: -111.92 }, radius_miles: 25, count: 1,
+    communities: [{ id: communityId, name: 'Test', state: 'AZ', location: 'Test', distance_miles: 2.5,
+      member_count: 200, ambassador_count: 3 }] };
+  const result = await executeAction('communities.search', { query: 'Scottsdale', radius_miles: 25 }, {}, {
+    env, fetchImpl: async (url, init) => {
+      assert.equal(url, `${CAMPAIGN_API_URL}?communities=Scottsdale&radius_miles=25&limit=25`);
+      assert.equal(init.method, 'GET');
+      assert.equal(init.headers.Authorization, `Bearer ${env.ENRICHMENT_AGENT_KEY}`);
+      return response(payload);
+    },
+  });
+  assert.deepEqual(result.response, payload);
+});
+
+test('photos use product_image_url for RFQ, pre-campaign and PATCH, not downstream image_url', () => {
+  const product_image_url = 'https://example.com/product.webp';
+  for (const stage of ['rfq', 'pre_campaign']) {
+    assert.equal(buildRequest('requests.create', { ...input, stage, product_image_url }, confirmation).body.product_image_url, product_image_url);
+  }
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, product_image_url }, confirmation).body,
+    { id: brandId, product_image_url });
+  assert.throws(() => buildRequest('requests.create', { ...input, image_url: product_image_url }, confirmation), /Unsupported/);
+  assert.throws(() => buildRequest('requests.update', { id: brandId, product_image_url: null }, confirmation), /product_image_url/);
+});
+
 test('community member sorting is validated and forwarded without stripping counts', async () => {
   assert.equal(buildRequest('communities.search', { query: ' TX ', limit: 50, sort: 'members' }).query,
     '?communities=TX&limit=50&sort=members');

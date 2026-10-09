@@ -11,7 +11,8 @@ request, for example `Seeding: <product>`.
 With `stage: "pre_campaign"`, offering selection is optional and no price estimate
 is made. Prepare an interest-check draft, not a quote request; use `SKILL.md` for
 its draft-edit limits and admin-only close/conversion steps. Mom Walk interest
-delivery is not live yet. The pricing below applies to normal RFQs only.
+delivery requires a successful admin handoff; saving alone does not send.
+The pricing below applies to normal RFQs only.
 
 | request_type | Offering | What it is | Suggested service price |
 | --- | --- | --- | --- |
