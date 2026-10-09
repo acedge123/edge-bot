@@ -171,6 +171,11 @@ For a user-supplied local attachment, prefer `--image-file` on `requests.create`
 or `requests.update`; no pre-hosted URL is needed. Use the actual attachment path
 available inside the hosted agent, not a guessed laptop path. Confirm permission
 to make the image public: the portal stores it at a permanent public URL.
+The Echelon UI's existing Attach button is sufficient: the worker now includes
+the saved original's absolute workspace path alongside the image. Use that path;
+do not ask the user to find a different file-upload button. If a download fails,
+report the worker's specific reason. Older messages processed before this fix
+may not have a saved file; do not invent paths from them.
 
 ```bash
 brand-connect-campaigns requests.update \
