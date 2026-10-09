@@ -167,7 +167,39 @@ Omit unknown optional values rather than inventing them.
 
 ### Campaign Photo
 
-Set `product_image_url` on creation or an editable request's PATCH. Use a public,
+For a user-supplied local attachment, prefer `--image-file` on `requests.create`
+or `requests.update`; no pre-hosted URL is needed. Use the actual attachment path
+available inside the hosted agent, not a guessed laptop path. Confirm permission
+to make the image public: the portal stores it at a permanent public URL.
+
+```bash
+brand-connect-campaigns requests.update \
+  --params-json '{"id":"<existing-draft-uuid>"}' \
+  --confirm-target '<existing-draft-uuid>' --image-file '/path/to/confirmed-photo.jpg'
+```
+
+For a new request, add the same flag to the confirmed `requests.create` command.
+The client reads the file, checks its JPG/PNG/WebP signature and 5 MB maximum,
+and supplies `image_base64` and `image_content_type`. It does not resize/re-encode
+the photo or prove that the entire image is decodable. Aim for 800x400 (2:1)
+and under 500 KB for Mom Walk; an API-accepted 5 MB file is not proof of meeting
+the display spec. If needed, get a correctly sized version before uploading.
+Do not paste base64 or attachment contents into chat, logs, or shell arguments.
+Raw `image_base64` with `image_content_type` (image/jpeg, image/png, image/webp)
+or a supported image data URL is also accepted in params. Do not combine those
+with `--image-file`. Upload bytes override `product_image_url` when both are sent.
+For local files the type is detected from bytes, not the filename extension.
+
+The normal target-confirmation and PATCH locks apply: edit the same pre-campaign
+while interest status is draft, or an unquoted submitted RFQ. Do not create a new
+record just to attach a photo. Read the PATCH caveats below first: image-only
+updates still run the backend's normal note/offering logic. A timeout can leave
+an uploaded storage object or updated record; never retry writes automatically.
+Verify upload acknowledgement via `updated_fields` and ask Admin to check the
+photo preview. Current GET/PATCH responses do not expose the saved photo URL;
+do not claim independent URL or image verification from them.
+
+Alternatively, set `product_image_url` on creation or an editable PATCH. Use a public,
 non-expiring HTTPS link to an 800x400 (2:1) JPG, PNG, or WebP image under 500 KB.
 Do not use signed/expiring links, login-protected URLs, or an HTML page instead
 of an image. Verify access and image dimensions/size when possible; otherwise
@@ -245,6 +277,24 @@ The handoff doc still describes an unavailable popup if the receiver returns
 404. Report actual admin send success/failure when available; do not claim
 delivery until verified. Agent calls remain submission/update/lookup only.
 
+### Partial Interest-Check Acceptance
+
+Admin interest-check sends now accept valid communities even when some fail.
+The Mom Walk reply can include `created: true` and `skipped_communities`; the
+portal displays skipped communities as a warning and records them in history.
+Report partial success and the skipped communities, not full delivery or total
+failure. If none are valid the send fails and includes skipped IDs. These are
+admin-send responses, not the `requests.create` submission response; GET does
+not currently expose them, so get them from Admin's warning/history rather than
+assuming a submitted draft reached every community. A lookup result does not
+prove send eligibility; do not infer rejection solely from low member counts.
+Do not automatically remove/replace communities or resend successful ones.
+Resolve a proposed replacement, check whether it is already included, and get
+confirmation for the full replacement set. A sent pre-campaign stays locked;
+if an amended new pre-campaign is needed, obtain permission before creating it.
+Partial acceptance applies to interest checks only; official campaign sends
+still reject the entire batch on an invalid community unless that contract changes.
+
 ## Status and Human Gates
 
 ```bash
@@ -281,7 +331,8 @@ Send `id` plus only the intended changes. Supported fields: `product_name`,
 `product_description`, `product_url`, `product_image_url`, `request_type`,
 `community_ids`, `target_recipients`, `start_date`, `end_date`, `instructions`,
 `ambassadors_only`, `brand_account_id`, `brand_email`, `brand_name`,
-`brand_website`, `create_brand`, and `interest_deadline`. `stage` is creation-only.
+`brand_website`, `create_brand`, `interest_deadline`, `image_base64`, and
+`image_content_type` (or use `--image-file`). `stage` is creation-only.
 The same limits and
 validation as creation apply. At least one change is required. Omitted values
 are not added by the client: in particular, omitted `ambassadors_only` does not

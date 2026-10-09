@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, CAMPAIGN_API_URL, buildRequest, executeAction, parseCliArgs } from './brand-connect-campaigns.mjs';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ACTIONS, CAMPAIGN_API_URL, MAX_IMAGE_BYTES, buildRequest, executeAction, loadImageFile, parseCliArgs } from './brand-connect-campaigns.mjs';
 
 const brandId = '11111111-1111-4111-8111-111111111111';
 const communityId = '22222222-2222-4222-8222-222222222222';
@@ -8,6 +11,92 @@ const input = { brand_account_id: brandId, request_type: 'sampling', product_nam
 const confirmation = { confirmTarget: brandId };
 const env = { ENRICHMENT_AGENT_KEY: 'private-outreach-key' };
 const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
+const png = Buffer.from('89504e470d0a1a0a00000000', 'hex');
+const image = { image_base64: png.toString('base64'), image_content_type: 'image/png' };
+
+test('image fields support raw base64 and data URLs, with upload winning over URL', () => {
+  for (const [type, bytes] of [['image/jpeg', Buffer.from('ffd8ffe00000', 'hex')],
+    ['image/webp', Buffer.from('524946460400000057454250', 'hex')]]) {
+    assert.equal(buildRequest('requests.update', { id: brandId, image_base64: bytes.toString('base64'), image_content_type: type }, confirmation).body.image_content_type, type);
+  }
+  assert.deepEqual(buildRequest('requests.update', { id: brandId, ...image }, confirmation).body, { id: brandId, ...image });
+  const body = buildRequest('requests.create', { ...input, image_base64: `data:image/png;base64,${image.image_base64}`,
+    product_image_url: 'https://example.com/old.png' }, confirmation).body;
+  assert.equal(body.image_base64, image.image_base64);
+  assert.equal(body.image_content_type, 'image/png');
+  assert.equal(body.product_image_url, 'https://example.com/old.png');
+  const bytes = Buffer.alloc(MAX_IMAGE_BYTES); png.copy(bytes);
+  assert.equal(buildRequest('requests.update', { id: brandId, image_base64: bytes.toString('base64'), image_content_type: 'image/png' }, confirmation).body.image_base64.length, bytes.toString('base64').length);
+});
+
+test('local photo creation sends one POST and never retries a failed upload', async () => {
+  for (const status of [201, 400, 500]) {
+    let calls = 0;
+    const result = await executeAction('requests.create', { ...input, stage: 'pre_campaign' },
+      { ...confirmation, imageFile: '/photo.png' }, { env, loadImageFile: async () => image,
+        fetchImpl: async (url, init) => {
+          calls++;
+          assert.equal(init.method, 'POST');
+          assert.deepEqual(JSON.parse(init.body), { ...input, stage: 'pre_campaign', ...image, ambassadors_only: false });
+          return response(status === 201 ? { id: brandId, status: 'submitted', stage: 'pre_campaign' } : { error: 'Upload failed' }, status);
+        },
+      });
+    assert.equal(calls, 1);
+    assert.equal(result.ok, status === 201);
+  }
+});
+
+test('bad image data fails before network', async () => {
+  for (const extra of [{ image_content_type: 'image/png' }, { image_base64: '' },
+    { ...image, image_base64: 'not base64!' }, { ...image, image_content_type: 'image/jpeg' },
+    { ...image, image_content_type: 'image/gif' }, { image_base64: image.image_base64 },
+    { ...image, image_base64: 'data:image/jpeg;base64,' + image.image_base64 },
+    { ...image, image_base64: Buffer.alloc(MAX_IMAGE_BYTES + 1).toString('base64') }]) {
+    await assert.rejects(() => executeAction('requests.update', { id: brandId, ...extra }, confirmation, {
+      fetchImpl: () => assert.fail('Invalid images must not reach network'),
+    }), /image|Image/);
+  }
+});
+
+test('local file option detects type from bytes and rejects missing, oversized or invalid files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'campaign-image-'));
+  try {
+    const path = join(dir, 'photo.wrong-extension');
+    await writeFile(path, png);
+    assert.deepEqual(await loadImageFile(path), image);
+    for (const bytes of [Buffer.alloc(0), Buffer.from('not an image'), Buffer.alloc(MAX_IMAGE_BYTES + 1)]) {
+      await writeFile(path, bytes);
+      await assert.rejects(() => loadImageFile(path), /Image/);
+    }
+    await assert.rejects(() => loadImageFile(join(dir, 'missing.png')), /ENOENT/);
+    await assert.rejects(() => loadImageFile(dir), /regular|EISDIR/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+  assert.equal(parseCliArgs(['requests.update', '--image-file', '/tmp/photo.png']).options.imageFile, '/tmp/photo.png');
+  assert.throws(() => parseCliArgs(['requests.update', '--image-file']), /Invalid CLI flag/);
+});
+
+test('local image PATCH preserves preflight, locks, confirmation and redacts bytes in output', async () => {
+  for (const interest_status of ['draft', 'sent']) {
+    let calls = 0;
+    const run = () => executeAction('requests.update', { id: brandId }, { ...confirmation, imageFile: '/photo.png' }, {
+      env, loadImageFile: async () => image, fetchImpl: async (url, init) => {
+        calls++;
+        if (init.method === 'GET') return response({ request: { id: brandId, stage: 'pre_campaign', interest_status } });
+        assert.deepEqual(JSON.parse(init.body), { id: brandId, ...image });
+        return response({ id: brandId, request: { id: brandId }, updated_fields: ['product_image_url'], echoed: image.image_base64 });
+      },
+    });
+    if (interest_status === 'draft') {
+      assert.equal((await run()).response.echoed, '[IMAGE REDACTED]');
+      assert.equal(calls, 2);
+    } else { await assert.rejects(run, /Only draft/); assert.equal(calls, 1); }
+  }
+  await assert.rejects(() => executeAction('requests.update', { id: brandId }, { imageFile: '/photo.png' }, {
+    loadImageFile: async () => image, fetchImpl: () => assert.fail('Confirmation required'),
+  }), /confirm-target/);
+  await assert.rejects(() => executeAction('requests.get', { id: brandId }, { imageFile: '/photo.png' }), /only supported/);
+  await assert.rejects(() => executeAction('requests.update', { id: brandId, ...image }, { ...confirmation, imageFile: '/photo.png' }), /not both/);
+});
 
 test('registry exposes only lookup, submission, and status', () => {
   assert.deepEqual(ACTIONS, ['communities.search', 'brands.search', 'brands.resolve-email', 'requests.create', 'requests.get', 'requests.update']);

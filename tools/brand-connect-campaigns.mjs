@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { realpathSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { sponsorOpsHeaders } from './brand-connect-sponsor-ops.mjs';
 
@@ -11,6 +12,63 @@ const MAX_COMMUNITIES = 500;
 const MAX_COMMUNITY_SEARCH_RESULTS = 500;
 const MAX_RADIUS_MILES = 250;
 const MAX_RECIPIENTS = 1_000_000;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+function imageType(bytes) {
+  if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  throw new Error('Image must have a JPG, PNG, or WebP file signature');
+}
+
+function imageFields(input) {
+  if (input.image_base64 === undefined) {
+    if (input.image_content_type !== undefined) throw new Error('image_content_type requires image_base64');
+    return {};
+  }
+  if (typeof input.image_base64 !== 'string' || input.image_base64.length > 7_000_000) {
+    throw new Error('image_base64 must be a base64 string for an image of at most 5 MB');
+  }
+  let encoded = input.image_base64.trim();
+  const dataUrl = encoded.match(/^data:(image\/(?:jpeg|png|webp));base64,/i);
+  if (dataUrl) encoded = encoded.slice(dataUrl[0].length);
+  const type = input.image_content_type ?? dataUrl?.[1].toLowerCase();
+  if (!IMAGE_TYPES.includes(type)) throw new Error('image_content_type must be image/jpeg, image/png, or image/webp (or use a data URL)');
+  encoded = encoded.replace(/\s/g, '');
+  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+    throw new Error('image_base64 is not valid base64');
+  }
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.toString('base64') !== encoded) throw new Error('image_base64 is not canonical base64');
+  if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error('Image must be nonempty and 5 MB or smaller');
+  if (imageType(bytes) !== type || (dataUrl && dataUrl[1].toLowerCase() !== type)) {
+    throw new Error('Image content type does not match the image bytes');
+  }
+  return { image_base64: bytes.toString('base64'), image_content_type: type };
+}
+
+export async function loadImageFile(path) {
+  if (typeof path !== 'string' || !path.trim()) throw new Error('--image-file requires a local file path');
+  const file = await open(path, 'r');
+  try {
+    const info = await file.stat();
+    if (!info.isFile() || !info.size || info.size > MAX_IMAGE_BYTES) throw new Error('Image must be a regular nonempty file of at most 5 MB');
+    // Bound reads even if the file grows after stat; never load arbitrary-size attachments.
+    const buffer = Buffer.alloc(MAX_IMAGE_BYTES + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const { bytesRead } = await file.read(buffer, size, buffer.length - size, null);
+      if (!bytesRead) break;
+      size += bytesRead;
+    }
+    if (!size || size > MAX_IMAGE_BYTES) throw new Error('Image must be nonempty and 5 MB or smaller');
+    const bytes = buffer.subarray(0, size);
+    return imageFields({ image_base64: bytes.toString('base64'), image_content_type: imageType(bytes) });
+  } finally {
+    await file.close();
+  }
+}
 
 function object(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('params must be a JSON object');
@@ -51,10 +109,10 @@ function date(value, name) {
 
 function requestFields(input, { partial = false } = {}) {
   known(input, ['brand_account_id', 'brand_email', 'brand_name', 'brand_website', 'create_brand', 'request_type', 'product_name',
-    'product_description', 'product_url', 'product_image_url', 'community_ids',
+    'product_description', 'product_url', 'product_image_url', 'image_base64', 'image_content_type', 'community_ids',
     'target_recipients', 'start_date', 'end_date', 'interest_deadline', 'instructions', 'ambassadors_only',
     ...(partial ? [] : ['stage'])]);
-  const params = {};
+  const params = imageFields(input);
   if (input.stage !== undefined) {
     if (!['rfq', 'pre_campaign'].includes(input.stage)) throw new Error('stage must be rfq or pre_campaign');
     params.stage = input.stage;
@@ -187,6 +245,14 @@ export function buildRequest(action, input = {}, options = {}) {
 }
 
 export async function executeAction(action, params = {}, options = {}, dependencies = {}) {
+  if (options.imageFile !== undefined) {
+    if (!['requests.create', 'requests.update'].includes(action)) throw new Error('--image-file is only supported for requests.create or requests.update');
+    object(params);
+    if (params.image_base64 !== undefined || params.image_content_type !== undefined) {
+      throw new Error('Use --image-file or image_base64/image_content_type, not both');
+    }
+    params = { ...params, ...await (dependencies.loadImageFile ?? loadImageFile)(options.imageFile) };
+  }
   const request = buildRequest(action, params, options);
   if (action === 'requests.update') {
     const current = await executeAction('requests.get', { id: request.body.id }, {}, dependencies);
@@ -215,7 +281,11 @@ export async function executeAction(action, params = {}, options = {}, dependenc
   });
   const payload = await response.json();
   const secret = env.ENRICHMENT_AGENT_KEY.trim();
-  const safePayload = JSON.parse(JSON.stringify(payload).split(secret).join('[REDACTED]'));
+  let safeJson = JSON.stringify(payload).split(secret).join('[REDACTED]');
+  for (const encoded of [params.image_base64, request.body?.image_base64]) {
+    if (encoded) safeJson = safeJson.split(encoded).join('[IMAGE REDACTED]');
+  }
+  const safePayload = JSON.parse(safeJson);
   if (response.ok && action === 'requests.create' && (response.status !== 201 || payload.status !== 'submitted' || !UUID.test(payload.id ?? ''))) {
     throw new Error('Unexpected creation response; outcome uncertain. Check Admin Requests before retrying.');
   }
@@ -235,11 +305,12 @@ export function parseCliArgs(args) {
   const seen = new Set();
   for (let i = 0; i < rest.length; i += 2) {
     const flag = rest[i];
-    if (!['--params-json', '--confirm-target', '--confirm-brand-name'].includes(flag) || seen.has(flag) || rest[i + 1] === undefined) throw new Error(`Invalid CLI flag: ${flag}`);
+    if (!['--params-json', '--confirm-target', '--confirm-brand-name', '--image-file'].includes(flag) || seen.has(flag) || rest[i + 1] === undefined) throw new Error(`Invalid CLI flag: ${flag}`);
     seen.add(flag);
     if (flag === '--params-json') result.params = JSON.parse(rest[i + 1]);
     else if (flag === '--confirm-target') result.options.confirmTarget = rest[i + 1];
-    else result.options.confirmBrandName = rest[i + 1];
+    else if (flag === '--confirm-brand-name') result.options.confirmBrandName = rest[i + 1];
+    else result.options.imageFile = rest[i + 1];
   }
   return result;
 }
@@ -247,7 +318,7 @@ export function parseCliArgs(args) {
 async function main() {
   const { action, params, options } = parseCliArgs(process.argv.slice(2));
   if (action === 'list-actions' || action === 'help') {
-    console.log(JSON.stringify({ actions: ACTIONS, usage: 'brand-connect-campaigns <action> --params-json <json> [--confirm-target <brand-id-or-email-or-name-or-request-id>] [--confirm-brand-name <exact-name>]' }));
+    console.log(JSON.stringify({ actions: ACTIONS, usage: 'brand-connect-campaigns <action> --params-json <json> [--confirm-target <brand-id-or-email-or-name-or-request-id>] [--confirm-brand-name <exact-name>] [--image-file <local-jpg-png-webp-path>]' }));
     return;
   }
   const result = await executeAction(action, params, options);
