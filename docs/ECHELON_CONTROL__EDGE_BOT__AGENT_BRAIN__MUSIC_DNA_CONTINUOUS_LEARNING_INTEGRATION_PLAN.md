@@ -73,6 +73,38 @@ Use existing `app-signal-inbound` / approved source-onboarding mechanisms; do **
 - Keep existing app-signal incident feedback (fixed/mitigated/etc.) distinct from business outcome events and learning-evaluation decisions. Join them by trace/reference where relevant; do not overload one status to mean everything.
 - Enforce source/tenant isolation, redaction, retention limits, duplication checks, and approval gates for external effects.
 
+### Concrete pathway — enable Music DNA review jobs while general signal LLM processing stays off
+
+**Owner clarification, 2026-11-06:** EdgeBot has rudimentary Echelon signal plumbing, but LLM processing of those signals is disabled. A working queue/receipt, an installed skill, or Agent Brain connectivity does not by itself enable learning analysis. **Music DNA is the first learning pilot; Media Buyer is the second domain after the Music DNA loop is proven.** Existing Music DNA skills cover synthetic persona QA and catalog/lane maintenance; the new `music-dna-learning` skill must be built under AB-51.
+
+**Verified worker behavior:** `workspace/scripts/echelon-agent-worker.mjs` reads `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` as false by default and calls `shouldBypassAppSignalModel` before model routing. `workspace/scripts/echelon-app-signal-policy.mjs` bypasses all app-signal model calls when that flag is false; the normal job loop can then acknowledge the deterministic response as `done`. That acknowledgment is not evidence of completed learning analysis. Current code has no scoped Music DNA learning-review exception. Runtime configuration is still unverified.
+
+**Implementation ticket: [AB-54](https://youtrack.thegig.agency/issue/AB-54).** Add a deliberately narrow path using the existing Echelon queue and worker:
+
+1. **Capture:** Music DNA observations continue to land as validated, audit-only evidence. Ingesting a vote, feedback row or session must not itself queue an LLM job. AB-46 and AB-50 retain their zero-job/zero-LLM ingestion checks.
+2. **Request:** An authenticated, authorized human requests review of one accepted Music DNA source/environment/batch/window. Echelon verifies scope, purpose, evidence eligibility and budget, then creates one idempotent `learning_review_candidate` job. Tenant/source/purpose must come from trusted authorization, not unvalidated sender metadata or arbitrary `workflow` text.
+3. **Enable narrowly:** Add an Echelon route opt-in and an independent worker scope/enable policy. A possible new flag name is `ECHELON_MUSICDNA_LEARNING_REVIEW_ENABLED` (**proposed, not currently implemented**). Keep `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM=false` for ordinary automated signals. Extend the existing policy explicitly so only this authorized source + tenant + environment + purpose may reach model execution while the general switch remains off.
+4. **Invoke the skill:** Route that eligible job to the real `music-dna-learning` skill and executable helper from AB-51. Use the verified Agent Brain adapter for bounded guidance when useful. Isolate the model session by tenant/source/batch; restrict tools to approved evidence reads and advice. Cap context/pages, model turns/tokens, elapsed time, concurrency, retry attempts and spend; preserve the persistent provider circuit breaker and reviewed model tiers. Counting queue jobs alone does not cap a multi-turn model/tool loop.
+5. **Record the actual result:** Return a validated draft review artifact with evidence references, policy/model versions, actual token/cost/latency and completion trace. Distinguish received, deterministically bypassed, blocked, review-completed and failed states in the review outcome contract; update schemas deliberately where required. Do not silently mark a bypassed/disabled review as successful analysis. Duplicate/replayed batches must not create duplicate persistent proposals or external effects.
+6. **Keep application separate:** Model review may propose an experiment or report insufficient evidence. It may not edit skills/memory, approve or deploy its own changes, alter Music DNA pairings, send messages, or spend media budgets. AB-30 governs approved lesson/change application; AB-53 verifies the return of outcomes from the version actually applied.
+
+**Enablement ladder:** default off → one authorized manual synthetic batch → measured single-job staging canary → restricted Music DNA production pilot after a recorded owner decision. Verify actual deployments, source/environment allowlists, provider readiness, cost baseline and maximum per-run budget. Later scheduled/cohort triggers require their own explicit scope and owner approval; this work does not turn on cron, heartbeats or general autonomous work. No live setting is changed by this plan.
+
+**Acceptance matrix:**
+
+| Situation | Required behavior |
+| --- | --- |
+| All review flags off | Zero learning-review LLM calls; existing deterministic signal handling preserved |
+| Scoped opt-in plus authorized eligible Music DNA batch | One bounded model-backed review with traceable draft output |
+| Other source/tenant/environment, spoofed purpose, raw observation or arbitrary workflow | No access to the scoped model-review route |
+| Duplicate/concurrent request or ambiguous response | One logical review job/result; no duplicate proposal/application |
+| Provider unavailable, insufficient evidence or exhausted budget | Explicit bounded failure/hold; no false completed-analysis result or retry storm |
+| Scoped kill switch disabled again | No new review model calls; predictable pending/running-job behavior; evidence remains available under retention rules |
+
+Verify direct source/tenant denial, prompt-injection resistance and output redaction as part of the same route tests. Ordinary operational/approval signals keep their prior behavior. Global app-signal enablement is not the rollout mechanism for this pilot.
+
+**Delivery stays small:** AB-42 contains the first-hop sender/receiver work; AB-51 builds the new manual skill/client; AB-54 supplies the Echelon/worker invocation and scoped LLM enablement; AB-52 runs the controlled experiment; AB-30 handles human-reviewed application; AB-53 proves the full return path. These are acceptance slices within cohesive repo PRs, not a requirement for new services or one PR per ticket. Overall tracking is [AB-6](https://youtrack.thegig.agency/issue/AB-6), with the work on board 101-133.
+
 ## Contract C — EdgeBot ↔ Agent Brain and learning records
 
 First repair/verify the documented HTTP adapter. `workspace/skills/agent-brain-router/SKILL.md` references `scripts/agent-brain-router.mjs`, which was not in the reviewed repository tree. Implement it or correct the skill to the real existing tool path, with:
@@ -115,7 +147,7 @@ States: `observed → hypothesis_draft → evaluation_pending → rejected | hum
 | EdgeBot | No new autonomous work yet; add read-only smoke skill/script to retrieve and summarize one authorized learning batch. | Can report provenance of one batch without editing any skill or memory. |
 | Agent Brain | Publish pinned version/schema for regime/strategy and measurement guidance; no automatic tuning. | Offline test confirms field mappings, compatibility, and stable output. |
 
-**Gate to Phase 2:** Trace a sample from a Music DNA decision → database event → Echelon receipt → approved EdgeBot readout, including deliberate duplicate delivery, missing outcomes, and tenant access denial.
+**Gate to Phase 2:** First prove decision → database event → Echelon receipt/restricted readback with zero model jobs (AB-50). Then build the manual learning skill (AB-51) and prove one explicitly enabled, authorized batch → bounded model-backed EdgeBot review through the scoped pathway above (AB-54). Include deliberate duplicate delivery, missing outcomes, tenant access denial and switch-off rollback. A deterministic signal acknowledgment does not satisfy the model-review gate.
 
 ## Phase 2 — Run a controlled learning experiment
 
