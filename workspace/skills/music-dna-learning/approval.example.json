@@ -1,0 +1,22 @@
+{
+  "schema_version": "musicdna-learning-approval.v1",
+  "approval_ref": "51000000-0000-4000-8000-000000000001",
+  "approved": false,
+  "first_hop_accepted": false,
+  "source": "music-dna-staging",
+  "environment": "staging",
+  "tenant_id": "musicdna-acceptance",
+  "reviewer_user_id": "REPLACE_WITH_VERIFIED_REVIEWER_UUID",
+  "observed_from": "2026-11-06T00:00:00.000Z",
+  "observed_until": "2026-11-07T00:00:00.000Z",
+  "expires_at": "REPLACE_WITH_APPROVED_EXPIRY_UTC",
+  "budget": {
+    "page_size": 1,
+    "max_pages": 3,
+    "max_receipts": 3,
+    "max_elapsed_ms": 10000,
+    "max_brain_calls": 1,
+    "max_brain_input_bytes": 2048,
+    "max_model_tokens": 0
+  }
+}

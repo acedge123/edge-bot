@@ -1,0 +1,19 @@
+name: musicdna-learning
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing tools, manual learning client and mounted workspace sync
+        run: node --test workspace/scripts/*.test.mjs tools/*.test.mjs
+      - name: Operator CLI usage
+        run: |
+          node workspace/scripts/agent-brain-router.mjs --help
+          node workspace/scripts/music-dna-learning.mjs --help

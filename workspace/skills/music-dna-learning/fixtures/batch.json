@@ -1,0 +1,229 @@
+{
+  "fixture_class": "synthetic_only_not_live_receipts",
+  "approval": {
+    "schema_version": "musicdna-learning-approval.v1",
+    "approval_ref": "51000000-0000-4000-8000-000000000001",
+    "approved": true,
+    "first_hop_accepted": false,
+    "source": "music-dna-staging",
+    "environment": "staging",
+    "tenant_id": "musicdna-acceptance",
+    "reviewer_user_id": "51000000-0000-4000-8000-000000000002",
+    "observed_from": "2026-11-06T00:00:00.000Z",
+    "observed_until": "2026-11-07T00:00:00.000Z",
+    "expires_at": "2026-11-09T00:00:00.000Z",
+    "budget": {
+      "page_size": 1,
+      "max_pages": 3,
+      "max_receipts": 3,
+      "max_elapsed_ms": 10000,
+      "max_brain_calls": 1,
+      "max_brain_input_bytes": 2048,
+      "max_model_tokens": 0
+    }
+  },
+  "pages": [
+    {
+      "ok": true,
+      "batch_ref": "51000000-0000-4000-8000-000000000003",
+      "source": "music-dna-staging",
+      "environment": "staging",
+      "window": {
+        "observed_from": "2026-11-06T00:00:00.000Z",
+        "observed_until": "2026-11-07T00:00:00.000Z",
+        "captured_at": "2026-11-08T01:00:00.000000Z"
+      },
+      "items": [
+        {
+          "receipt_id": "51000000-0000-4000-8000-000000000011",
+          "observation_id": "51000000-0000-4000-8000-000000000021",
+          "source": "music-dna-staging",
+          "environment": "staging",
+          "schema_version": "learning-observation.v1",
+          "privacy_policy_version": "synthetic-pilot.v1",
+          "evidence_refs": {
+            "subject_ref": "s_0000000000000000000000000000000000000000000000000000000000000001",
+            "decision_ref": "d_0000000000000000000000000000000000000000000000000000000000000002",
+            "result_ref": "r_0000000000000000000000000000000000000000000000000000000000000003",
+            "result_version": 1,
+            "feedback_ref": "f_0000000000000000000000000000000000000000000000000000000000000004"
+          },
+          "observed_at": "2026-11-06T20:00:01.000Z",
+          "received_at": "2026-11-07T01:00:00.000000Z",
+          "versions": {
+            "evidence": "evidence.v1",
+            "catalog": null
+          },
+          "policy": {
+            "id": null,
+            "version": null,
+            "recommendation_event_id": null,
+            "experiment_id": null,
+            "variant": null
+          },
+          "feedback": {
+            "accuracy": "accurate",
+            "rating": 1
+          },
+          "status": "received",
+          "provenance": {
+            "result_source": "pairings",
+            "answered_count": 6,
+            "data_class": "synthetic",
+            "purpose": "musicdna_diagnostic_quality"
+          },
+          "outcome_state": "unknown",
+          "late_for_window": true
+        }
+      ],
+      "next_cursor": "opaque-fixture-cursor-1",
+      "has_more": true,
+      "readout": {
+        "page_receipts": 1,
+        "late_receipts": 1,
+        "outcome_state": "unknown",
+        "session_completeness": "not_asserted",
+        "quality_assessment": "not_evaluated"
+      }
+    },
+    {
+      "ok": true,
+      "batch_ref": "51000000-0000-4000-8000-000000000003",
+      "source": "music-dna-staging",
+      "environment": "staging",
+      "window": {
+        "observed_from": "2026-11-06T00:00:00.000Z",
+        "observed_until": "2026-11-07T00:00:00.000Z",
+        "captured_at": "2026-11-08T01:00:00.000000Z"
+      },
+      "items": [
+        {
+          "receipt_id": "51000000-0000-4000-8000-000000000012",
+          "observation_id": "51000000-0000-4000-8000-000000000022",
+          "source": "music-dna-staging",
+          "environment": "staging",
+          "schema_version": "learning-observation.v1",
+          "privacy_policy_version": "synthetic-pilot.v1",
+          "evidence_refs": {
+            "subject_ref": "s_0000000000000000000000000000000000000000000000000000000000000001",
+            "decision_ref": "d_0000000000000000000000000000000000000000000000000000000000000002",
+            "result_ref": "r_0000000000000000000000000000000000000000000000000000000000000003",
+            "result_version": 2,
+            "feedback_ref": "f_0000000000000000000000000000000000000000000000000000000000000004"
+          },
+          "observed_at": "2026-11-06T20:00:02.000Z",
+          "received_at": "2026-11-07T01:00:00.000000Z",
+          "versions": {
+            "evidence": "evidence.v1",
+            "catalog": null
+          },
+          "policy": {
+            "id": null,
+            "version": null,
+            "recommendation_event_id": null,
+            "experiment_id": null,
+            "variant": null
+          },
+          "feedback": {
+            "accuracy": "not_accurate",
+            "rating": null
+          },
+          "status": "received",
+          "provenance": {
+            "result_source": "chat_self_report",
+            "answered_count": 6,
+            "data_class": "synthetic",
+            "purpose": "musicdna_diagnostic_quality"
+          },
+          "outcome_state": "unknown",
+          "late_for_window": true
+        }
+      ],
+      "next_cursor": "opaque-fixture-cursor-2",
+      "has_more": true,
+      "readout": {
+        "page_receipts": 1,
+        "late_receipts": 1,
+        "outcome_state": "unknown",
+        "session_completeness": "not_asserted",
+        "quality_assessment": "not_evaluated"
+      }
+    },
+    {
+      "ok": true,
+      "batch_ref": "51000000-0000-4000-8000-000000000003",
+      "source": "music-dna-staging",
+      "environment": "staging",
+      "window": {
+        "observed_from": "2026-11-06T00:00:00.000Z",
+        "observed_until": "2026-11-07T00:00:00.000Z",
+        "captured_at": "2026-11-08T01:00:00.000000Z"
+      },
+      "items": [
+        {
+          "receipt_id": "51000000-0000-4000-8000-000000000013",
+          "observation_id": "51000000-0000-4000-8000-000000000023",
+          "source": "music-dna-staging",
+          "environment": "staging",
+          "schema_version": "learning-observation.v1",
+          "privacy_policy_version": "synthetic-pilot.v1",
+          "evidence_refs": {
+            "subject_ref": "s_0000000000000000000000000000000000000000000000000000000000000001",
+            "decision_ref": "d_0000000000000000000000000000000000000000000000000000000000000002",
+            "result_ref": "r_0000000000000000000000000000000000000000000000000000000000000003",
+            "result_version": 3,
+            "feedback_ref": "f_0000000000000000000000000000000000000000000000000000000000000004"
+          },
+          "observed_at": "2026-11-06T20:00:03.000Z",
+          "received_at": "2026-11-07T01:00:00.000000Z",
+          "versions": {
+            "evidence": "evidence.v1",
+            "catalog": null
+          },
+          "policy": {
+            "id": null,
+            "version": null,
+            "recommendation_event_id": null,
+            "experiment_id": null,
+            "variant": null
+          },
+          "feedback": {
+            "accuracy": null,
+            "rating": 1
+          },
+          "status": "received",
+          "provenance": {
+            "result_source": "chat_self_report",
+            "answered_count": 6,
+            "data_class": "synthetic",
+            "purpose": "musicdna_diagnostic_quality"
+          },
+          "outcome_state": "unknown",
+          "late_for_window": true
+        }
+      ],
+      "next_cursor": null,
+      "has_more": false,
+      "readout": {
+        "page_receipts": 1,
+        "late_receipts": 1,
+        "outcome_state": "unknown",
+        "session_completeness": "not_asserted",
+        "quality_assessment": "not_evaluated"
+      }
+    }
+  ],
+  "brain_response": {
+    "api_version": "1.0.0",
+    "trace_id": null,
+    "ingestion": {},
+    "recommendation": {
+      "primary_regime": "explore",
+      "secondary_regime": null,
+      "opposing_regime": "prune",
+      "confidence": 0.5,
+      "transition_candidate": null,
+      "breakdown": []
+    }
+  }
+}
