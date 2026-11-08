@@ -327,3 +327,50 @@ test("kill after dispatch sends no draft to public job completion", async () => 
   assert.equal(r.state, "blocked");
   assert.equal(s.finished[0].worker_enabled, false);
 });
+
+for (const [status, code, type, param, expected] of [
+  [429, "insufficient_quota", "invalid_request_error", null, "quota_exhausted"],
+  [429, "rate_limit_exceeded", null, null, "rate_limited"],
+  [
+    400,
+    "unsupported_parameter",
+    "invalid_request_error",
+    "tool_choice",
+    "invalid_request",
+  ],
+])
+  test(
+    "provider diagnostics distinguish " +
+      code +
+      " without retry or message leakage",
+    async () => {
+      const s = setup(),
+        original = s.deps.fetchImpl;
+      s.deps.fetchImpl = async (url, o) => {
+        if (url.startsWith("https://api.openai.com")) {
+          s.calls.push({ url });
+          return Response.json(
+            {
+              error: {
+                code,
+                type,
+                param,
+                message: "Bearer secret raw evidence",
+              },
+            },
+            { status, headers: { "x-request-id": "req_fixture123" } },
+          );
+        }
+        return original(url, o);
+      };
+      const r = await processLearningReviewJob(s.job, s.deps);
+      assert.equal(r.state, "failed");
+      assert.equal(r.model_calls, 1);
+      assert.equal(r.provider_failure.class, expected);
+      assert.equal(r.provider_failure.http_status, status);
+      assert.equal(r.provider_failure.code, code);
+      assert.equal(r.provider_failure.request_id, "req_fixture123");
+      assert.equal(s.failures.length, 1);
+      assert.doesNotMatch(JSON.stringify(r), /Bearer|secret|raw evidence/);
+    },
+  );

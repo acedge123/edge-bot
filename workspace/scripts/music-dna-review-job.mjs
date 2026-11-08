@@ -253,12 +253,30 @@ export async function processLearningReviewJob(
           deadline,
           timeoutMs: 30000,
           maxBytes: 32768,
+          providerDiagnostics: true,
           fetchImpl,
         },
       );
     } catch (e) {
       const safe = new LearningClientError("review_provider_failed", e.status);
       safe.providerFailure = true;
+      safe.providerDiagnostics = e.providerDiagnostics ?? null;
+      safe.failureClass =
+        e.status === 401
+          ? "authentication"
+          : e.status === 403
+            ? "access_denied"
+            : e.providerDiagnostics?.code === "insufficient_quota"
+              ? "quota_exhausted"
+              : e.providerDiagnostics?.code === "rate_limit_exceeded"
+                ? "rate_limited"
+                : e.status === 400
+                  ? "invalid_request"
+                  : e.status >= 500
+                    ? "provider_unavailable"
+                    : e.status == null
+                      ? "transport_unavailable"
+                      : "http_error";
       throw safe;
     }
     const r = response.data,
@@ -348,6 +366,19 @@ export async function processLearningReviewJob(
     const code =
       error instanceof LearningClientError ? error.code : "review_failed";
     if (error.providerFailure === true) await onProviderFailure(error);
+    const failure =
+      error.providerFailure === true
+        ? {
+            provider_failure: {
+              class: error.failureClass,
+              http_status: error.status ?? null,
+              request_id: error.providerDiagnostics?.request_id ?? null,
+              code: error.providerDiagnostics?.code ?? null,
+              type: error.providerDiagnostics?.type ?? null,
+              parameter: error.providerDiagnostics?.parameter ?? null,
+            },
+          }
+        : {};
     if (packet?.lease_token && !completionAttempted) {
       const status =
         code === "insufficient_evidence"
@@ -369,6 +400,7 @@ export async function processLearningReviewJob(
           state: receipt.state,
           reason: code,
           model_calls: providerCalled ? 1 : 0,
+          ...failure,
         };
       } catch {}
     }
@@ -378,6 +410,7 @@ export async function processLearningReviewJob(
       model_calls: providerCalled ? 1 : 0,
       completion_receipt: "unconfirmed",
       provider_validated: providerValidated,
+      ...failure,
     };
   }
 }

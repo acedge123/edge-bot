@@ -71,3 +71,10 @@ attempts. An already permitted/in-flight call cannot be uncalled; completion
 rechecks gates and suppresses its draft. Withdrawal clears private draft/evidence
 links. Preserve claim/ack guards while review records exist; no generic ack fallback
 may mark a review done. Ordinary deterministic signals remain unchanged.
+
+The first owner-approved canary failed at its OpenAI request and was fully rolled
+back. See `MUSICDNA_AB54_CANARY_2026-11-08.md`. The reporting patch logs only bounded,
+allowlisted provider failure metadata (HTTP status, code/type/parameter, request ID)
+to distinguish request/access/quota/rate/transport failures without raw error text.
+It does not authorize or perform a retry; current production behavior is unchanged
+until a separately authorized deployment.
