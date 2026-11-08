@@ -35,6 +35,7 @@ import { mkdir, writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
+import {isLearningReviewCandidate,processLearningReviewJob,REVIEW_PROTOCOL} from './music-dna-review-job.mjs';
 import { pickRoutedAgent } from './echelon-model-route.mjs';
 import { answerCapabilityQuery } from './echelon-capability-query.mjs';
 import { buildEchelonSessionKey } from './echelon-session-key.mjs';
@@ -141,6 +142,7 @@ async function writeCircuitState() {
 function isProviderFailure(error) {
   const message = String(error?.message || error || '').toLowerCase();
   return (
+    error?.providerFailure === true ||
     message.includes('insufficient_quota') ||
     message.includes('no credits remaining') ||
     message.includes('upstream provider timeout') ||
@@ -253,7 +255,7 @@ async function claimNextJob() {
       'Authorization': `Bearer ${AGENT_EDGE_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ worker_id: WORKER_ID }),
+    body: JSON.stringify({ worker_id: WORKER_ID, review_protocol: REVIEW_PROTOCOL }),
   });
   if (res.status === 204) return null;
   if (!res.ok) {
@@ -786,6 +788,20 @@ async function runLoop() {
       }
 
       try {
+        if (isLearningReviewCandidate(job)) {
+          const review = await processLearningReviewJob(job, {
+            workerId: WORKER_ID, edgeKey: AGENT_EDGE_KEY, edgeUrl: ECHELON_EDGE_URL,
+            onProviderFailure: recordProviderFailure, onProviderSuccess: resetProviderCircuit,
+          });
+          if(review.completion_receipt==='unconfirmed' && review.model_calls===0){
+            // A forged marker is an ordinary failed job. Real reviews reject generic ack server-side.
+            await ackJob(job.id,'failed',{error:'review_authorization_unconfirmed'}).catch(()=>{});
+          }
+          console.log('[echelon-worker] review job',job.id,JSON.stringify(review));
+          // Dedicated completion only. Never fall through to generic agent/tools, messages or ack.
+          await new Promise(r=>setTimeout(r,2000));
+          continue;
+        }
         const responseText = await handleJob(job);
         await resetProviderCircuit();
 

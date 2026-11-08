@@ -66,3 +66,12 @@ Never schedule this command, invoke it per observation, enable the global
 `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` gate, enqueue jobs, send notifications, modify
 memory/skills, change a reading, or apply guidance automatically. Reading a batch
 is not authorization for any of those actions.
+
+## AB-54 scoped worker adapter
+
+The new default-off review-job route imports the pure AB-51 batch validator and
+numeric summarizer; it does not run this manual CLI or store a reviewer JWT.
+Echelon's authoritative request/lease and independent worker policy are mandatory.
+See `docs/MUSICDNA_LEARNING_REVIEW.md`. Incoming signal metadata, an installed
+skill or a generic workflow request cannot activate this route. Its output is a
+private `hold` draft for human review, never an automatic skill/policy change.
