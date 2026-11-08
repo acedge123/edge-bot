@@ -45,6 +45,7 @@ import {
   isWorkbookAttachment,
   MAX_WORKBOOK_BYTES,
 } from './echelon-workbook-attachment.mjs';
+import { prepareImageAttachment } from './echelon-image-attachment.mjs';
 import {
   buildDeterministicAppSignalResponse,
   isApprovalRequiredSignalJob,
@@ -284,10 +285,10 @@ async function ackJob(jobId, status, { responseText = null, error = null } = {})
 
 /**
  * Call gateway POST /v1/chat/completions with multimodal content.
- * Used only when at least one attachment is a real image; otherwise we use chat.send.
+ * All model-backed jobs use the synchronous completion endpoint.
  *
  * Attachment support:
- * - image: content includes { type: "image_url", image_url: { url } }
+ * - image: preserve multimodal content and save supported originals with a workspace path.
  * - file (csv/text): worker downloads and injects file text as additional { type: "text", text }
  */
 function sessionLogPathFor(sessionKey) {
@@ -456,10 +457,11 @@ async function gatewayChatCompletion({
 
     if (att?.type === 'image' && url) {
       sawImage = true;
-      content.push({
-        type: 'image_url',
-        image_url: { url },
-      });
+      const prepared = await prepareImageAttachment({ att, workspaceRoot: WORKSPACE_ROOT, edgeUrl: ECHELON_EDGE_URL });
+      console.log(JSON.stringify({ event: 'attachment.image_prepared', jobId: jid,
+        ok: prepared.saved.ok, bytes: prepared.saved.bytes, reason: prepared.saved.reason,
+        path: prepared.saved.rel }));
+      content.push(...prepared.content);
       continue;
     }
 

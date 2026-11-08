@@ -3,10 +3,16 @@
 Agent reference supplied by the Mom Walk team. These are suggested service
 rates, not a binding quote or a charge. An admin attaches the actual quote.
 
-`request_type` is required on POST, optional on PATCH, and must be one of the
+For normal RFQs, `request_type` is required on POST, optional on PATCH, and must be one of the
 three lowercase values below. This field selects the offering and suggested
 pricing. The campaign title does not drive pricing. The portal auto-labels the
 request, for example `Seeding: <product>`.
+
+With `stage: "pre_campaign"`, offering selection is optional and no price estimate
+is made. Prepare an interest-check draft, not a quote request; use `SKILL.md` for
+its draft-edit limits and admin-only close/conversion steps. Mom Walk interest
+delivery requires a successful admin handoff; saving alone does not send.
+The pricing below applies to normal RFQs only.
 
 | request_type | Offering | What it is | Suggested service price |
 | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 ---
 name: "mom-walk-campaigns"
-description: "Find communities and existing partner brands, submit or update unquoted sampling/seeding/IRL gifting quote requests, and check request status. Also routes discount-deal requests to supported Mom Walk tools."
+description: "Find communities and partner brands, create or edit draft pre-campaign interest checks and unquoted sampling/seeding/IRL gifting requests, and read status and hand-raise counts. Also routes discount-deal requests to supported Mom Walk tools."
 metadata:
   openclaw:
     requires:
@@ -30,27 +30,61 @@ brand-connect-campaigns communities.search --params-json '{"query":"denver","lim
 
 This maps to `GET ?communities=denver&limit=25`. The response contains
 `communities: [{id,name,state,location,member_count,ambassador_count}]`.
-Limit defaults to 25, maximum 50. Optional `sort: "members"` requests largest
+Limit defaults to 25, maximum 500. Optional `sort: "members"` requests largest
 member counts first; omit it for default alphabetical name ordering.
 
 ```bash
-brand-connect-campaigns communities.search --params-json '{"query":"TX","sort":"members","limit":50}'
+brand-connect-campaigns communities.search --params-json '{"query":"TX","sort":"members","limit":500}'
 ```
 
 For the largest 20, take the first 20 returned rows after confirming the counts
 are numeric and descending. Sum `ambassador_count` for those selected rows;
 do not confuse it with `member_count` or assume one ambassador per community.
 Counts describe communities, not guaranteed campaign recipients.
-For multiple states, search each state separately (up to 50 results per call).
+For multiple states, search each state separately (up to 500 results per call).
 Search matches names, locations, and states, so verify each row's `state`
 against the intended state before selection. If filtering leaves fewer than 20
 rows, report that limitation instead of claiming a complete statewide top 20.
-Deduplicate community IDs when combining results. Report when the 50-row cap
+Deduplicate community IDs when combining results. Report when the requested limit
 is reached; this endpoint does not expose pagination for community search.
 
 Select the intended rows, clarifying ambiguous matches with the requester.
 Never fabricate IDs or substitute a similar city. For a test community, search
 its name and verify the actual row; there is no automatic test fallback.
+
+### Radius Search
+
+Use the same action with a numeric `radius_miles` greater than 0 and at most
+250. Supply either an anchor `query`, or both numeric `lat` (-90 to 90) and
+`lng` (-180 to 180). Do not combine a name and coordinates. Coordinates require
+a radius; a normal text lookup still needs only `query`. Limits remain 1-500
+(default 25); fractional radii and coordinates are supported.
+
+```bash
+brand-connect-campaigns communities.search --params-json '{"query":"Scottsdale","radius_miles":25,"limit":500}'
+brand-connect-campaigns communities.search --params-json '{"lat":33.49,"lng":-111.92,"radius_miles":25,"limit":500}'
+```
+
+These map to `?communities=Scottsdale&radius_miles=25&limit=500` or
+`?lat=33.49&lng=-111.92&radius_miles=25&limit=500`. The response preserves
+`anchor: {name?,lat,lng}`, effective `radius_miles`, `count`, and communities
+with `distance_miles`, `member_count`, and `ambassador_count`. Default radius
+ordering is nearest-first; optional `sort: "members"` orders by largest member
+count instead, without removing distance values. Do not claim nearest-first
+ordering when requesting member sorting.
+
+Confirm the returned anchor name/coordinates and radius against the requested
+town before selecting campaign communities. The API prefers an exact name but
+can choose the first partial match; a successful response is not proof of the
+right town. If ambiguous, clarify or use confirmed coordinates, never invent
+coordinates or silently accept another anchor. A name without coordinates can
+return 404; explain this rather than substituting a different town.
+Radius results may cross state lines, so apply a state restriction only when
+requested, not automatically. Communities without coordinates are excluded;
+distances are rounded geographic distances, not driving distances. Report when
+the requested result limit is reached; do not claim exhaustive geographic
+coverage or all moms within the radius. These are community centers and counts,
+not individual member locations or confirmed campaign recipients.
 
 ## Resolve the Existing Brand
 
@@ -110,7 +144,7 @@ brand: re-run lookups and check Admin Requests before retrying any write.
 Read `standard-offerings.md` when selecting an offering or discussing an estimate.
 Seeding uses cumulative incremental bands, not a single volume rate applied to
 all communities: first 10 at $500 each, next 20 at $300 each, remaining at $200.
-Set `request_type` explicitly on **every submission**: it is the field that
+Set `request_type` explicitly on **every normal RFQ submission**: it is the field that
 selects the offering and suggested quote pricing, not the campaign title.
 Use exactly `sampling`, `seeding`, or `irl_gifting`. The portal auto-labels the
 request from that value and the product name. PATCH may omit it to retain the
@@ -131,6 +165,60 @@ Optional fields: `product_description` and `instructions` (up to 4000 characters
 (YYYY-MM-DD; end not before start), and `ambassadors_only` (boolean; default false).
 Omit unknown optional values rather than inventing them.
 
+### Campaign Photo
+
+For a user-supplied local attachment, prefer `--image-file` on `requests.create`
+or `requests.update`; no pre-hosted URL is needed. Use the actual attachment path
+available inside the hosted agent, not a guessed laptop path. Confirm permission
+to make the image public: the portal stores it at a permanent public URL.
+The Echelon UI's existing Attach button is sufficient: the worker now includes
+the saved original's absolute workspace path alongside the image. Use that path;
+do not ask the user to find a different file-upload button. If a download fails,
+report the worker's specific reason. Older messages processed before this fix
+may not have a saved file; do not invent paths from them.
+
+```bash
+brand-connect-campaigns requests.update \
+  --params-json '{"id":"<existing-draft-uuid>"}' \
+  --confirm-target '<existing-draft-uuid>' --image-file '/path/to/confirmed-photo.jpg'
+```
+
+For a new request, add the same flag to the confirmed `requests.create` command.
+The client reads the file, checks its JPG/PNG/WebP signature and 5 MB maximum,
+and supplies `image_base64` and `image_content_type`. It does not resize/re-encode
+the photo or prove that the entire image is decodable. Aim for 800x400 (2:1)
+and under 500 KB for Mom Walk; an API-accepted 5 MB file is not proof of meeting
+the display spec. If needed, get a correctly sized version before uploading.
+Do not paste base64 or attachment contents into chat, logs, or shell arguments.
+Raw `image_base64` with `image_content_type` (image/jpeg, image/png, image/webp)
+or a supported image data URL is also accepted in params. Do not combine those
+with `--image-file`. Upload bytes override `product_image_url` when both are sent.
+For local files the type is detected from bytes, not the filename extension.
+
+The normal target-confirmation and PATCH locks apply: edit the same pre-campaign
+while interest status is draft, or an unquoted submitted RFQ. Do not create a new
+record just to attach a photo. Read the PATCH caveats below first: image-only
+updates still run the backend's normal note/offering logic. A timeout can leave
+an uploaded storage object or updated record; never retry writes automatically.
+Verify upload acknowledgement via `updated_fields` and ask Admin to check the
+photo preview. Current GET/PATCH responses do not expose the saved photo URL;
+do not claim independent URL or image verification from them.
+
+Alternatively, set `product_image_url` on creation or an editable PATCH. Use a public,
+non-expiring HTTPS link to an 800x400 (2:1) JPG, PNG, or WebP image under 500 KB.
+Do not use signed/expiring links, login-protected URLs, or an HTML page instead
+of an image. Verify access and image dimensions/size when possible; otherwise
+report those properties as unverified. The client validates the URL, not its
+contents, dimensions, expiry, or file size.
+
+The portal now forwards this field automatically as `image_url` in both admin
+interest-check sends and accepted-quote official campaign sends. The photo
+appears above the opportunity text. Do not pass `image_url` to this client;
+it is a downstream handoff field, not an agent submission parameter. Keep the
+same approval/admin-send gates: adding a photo does not authorize sending.
+Null photo removal is not supported by the agent's current PATCH schema;
+ask an admin to remove it rather than sending null or inventing a clearing field.
+
 Show the selected brand, communities, product, type, and dates to the requester.
 Obtain confirmation to submit: **creation sends an admin notification email**,
 even though it does not deliver anything to Mom Walk participants.
@@ -149,6 +237,69 @@ The client wraps API output as `{action,status,ok,response}`; read the record
 from `response`. Report its ID and **submitted, awaiting admin quote** status.
 Do not call it published, sent, approved, or a `pending` API status.
 
+## Prepare a Pre-Campaign
+
+For gauging interest, use the same `requests.create` with `stage: "pre_campaign"`.
+Omit stage for a normal RFQ, or explicitly use `stage: "rfq"`. Confirm the intended
+mode with the requester; do not substitute an RFQ for an interest check.
+Resolve brand and communities and obtain submission confirmation as above;
+creation still notifies admins. Product name and 1-500 real community IDs remain
+required. `request_type` is optional in this mode; omit it if undecided rather
+than guessing Sampling. If supplied, use one of the three supported offerings.
+Optional `interest_deadline` is a real YYYY-MM-DD date. Other campaign fields
+and brand-creation confirmation rules still apply. Do not calculate a price
+estimate for a pre-campaign, even when an offering or recipient count is supplied.
+
+```bash
+brand-connect-campaigns requests.create \
+  --params-json '{"stage":"pre_campaign","brand_account_id":"<resolved-brand-uuid>","product_name":"Confirmed product","community_ids":["<resolved-community-uuid>"],"interest_deadline":"2026-11-15"}' \
+  --confirm-target '<resolved-brand-uuid>'
+```
+
+Creation returns `status: "submitted"`, `stage: "pre_campaign"`; this is a saved
+interest-check draft, not an RFQ awaiting a quote. Run `requests.get` afterward
+and report `request.interest_status` (initially `draft`) and the returned ID.
+GET also returns `interest: {total, by_community}` outside `request`.
+Each community entry contains `community_name`, `moms`, and `ambassadors`;
+sum those counts for role totals. These are non-withdrawn hand raises, not
+guaranteed recipients or completed deliveries. Report absent data as unavailable,
+not zero. The API does not return each person's name; those are visible in Admin.
+GET exposes `interest_deadline`, `converted_to_draft_id`, and
+`converted_from_draft_id` when available, so follow returned IDs without guessing.
+
+Admin Requests tags/filters these as Pre-campaign; brands see Gauging interest
+with nothing to approve. Admins can close the interest check or convert it to a
+separate linked normal request, optionally keeping only communities with hand
+raises. Conversion copies campaign fields; the resulting RFQ still requires an
+offering, admin quote, brand approval, and admin send. This client has no send,
+close, or conversion actions; stage cannot be changed through PATCH. Do not
+simulate conversion by submitting a duplicate RFQ or bypass the admin controls.
+
+The portal's send functions now include the photo. Saving a pre-campaign still
+does not send anything or start collecting interest. Do not treat deployed
+portal functions or the API's `next_step` as proof of Mom Walk receiver availability.
+The handoff doc still describes an unavailable popup if the receiver returns
+404. Report actual admin send success/failure when available; do not claim
+delivery until verified. Agent calls remain submission/update/lookup only.
+
+### Partial Interest-Check Acceptance
+
+Admin interest-check sends now accept valid communities even when some fail.
+The Mom Walk reply can include `created: true` and `skipped_communities`; the
+portal displays skipped communities as a warning and records them in history.
+Report partial success and the skipped communities, not full delivery or total
+failure. If none are valid the send fails and includes skipped IDs. These are
+admin-send responses, not the `requests.create` submission response; GET does
+not currently expose them, so get them from Admin's warning/history rather than
+assuming a submitted draft reached every community. A lookup result does not
+prove send eligibility; do not infer rejection solely from low member counts.
+Do not automatically remove/replace communities or resend successful ones.
+Resolve a proposed replacement, check whether it is already included, and get
+confirmation for the full replacement set. A sent pre-campaign stays locked;
+if an amended new pre-campaign is needed, obtain permission before creating it.
+Partial acceptance applies to interest checks only; official campaign sends
+still reject the entire batch on an invalid community unless that contract changes.
+
 ## Status and Human Gates
 
 ```bash
@@ -156,7 +307,7 @@ brand-connect-campaigns requests.get --params-json '{"id":"<returned-request-uui
 ```
 
 This maps to `GET ?id=...`, returning `response.request` with current status.
-Only the normal admin quote -> brand approval -> admin Send to Mom Walk flow
+For normal RFQs, only the admin quote -> brand approval -> admin Send to Mom Walk flow
 may move the request onward. The client exposes no approval, activation,
 participant-notification, or onward-send actions.
 
@@ -172,8 +323,10 @@ creation is not idempotent. Check Admin Requests for an existing record first.
 ## Update an Existing Agent Request
 
 Use `requests.update` to correct the same request, not a new submission, while
-it is still **submitted and unquoted**. First run `requests.get` with its real
-ID. The client also re-reads it before writing and rejects other statuses.
+a normal RFQ is **submitted and unquoted**, or a pre-campaign has
+`interest_status: "draft"` and has not been converted. First run `requests.get`
+with its real ID. The client re-reads it before writing and rejects non-draft
+pre-campaigns (including unknown interest status) and converted records.
 The backend additionally rejects requests not created via the agent API (403)
 and any request with a quote/proposal (409), even if its status says submitted.
 On a quote-lock error, stop and explain that a new request is needed; do not
@@ -183,7 +336,9 @@ Send `id` plus only the intended changes. Supported fields: `product_name`,
 `product_description`, `product_url`, `product_image_url`, `request_type`,
 `community_ids`, `target_recipients`, `start_date`, `end_date`, `instructions`,
 `ambassadors_only`, `brand_account_id`, `brand_email`, `brand_name`,
-`brand_website`, and `create_brand`. The same limits and
+`brand_website`, `create_brand`, `interest_deadline`, `image_base64`, and
+`image_content_type` (or use `--image-file`). `stage` is creation-only.
+The same limits and
 validation as creation apply. At least one change is required. Omitted values
 are not added by the client: in particular, omitted `ambassadors_only` does not
 become false. Null is not supported as a clearing value; empty description or
@@ -213,6 +368,14 @@ Backend caveat: PATCH currently rewrites admin `brand_notes` even when
 had instructions, obtain their current text from the requester/admin and include
 the confirmed text to retain it. GET does not expose those notes; do not invent
 them or assume omission preserves them. Report this caveat before updating.
+
+Pre-campaign PATCH caveat: if its offering is null and `request_type` is omitted,
+the backend currently defaults it to Sampling and may relabel the record. Do not
+silently choose an offering just to edit it. Warn the requester and obtain
+confirmation, or ask an admin to edit it in the portal. Stage remains pre-campaign;
+this does not authorize an estimate, quoting, or delivery. PATCH's `next_step`
+currently mentions quoting even for pre-campaigns; use a fresh GET's stage and
+interest status when reporting the actual workflow.
 
 After PATCH, run `requests.get` again. Compare the ID, product name, brand ID,
 request type, target recipients, community count, and dates against the intended
