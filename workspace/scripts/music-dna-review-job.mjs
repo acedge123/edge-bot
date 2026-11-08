@@ -184,7 +184,7 @@ export async function processLearningReviewJob(
       stream: false,
       n: 1,
       max_completion_tokens: c.max_output_tokens,
-      tool_choice: "none",
+      // No tools are supplied. Omit tool_choice: the API defaults to no tools.
       messages: [
         {
           role: "system",
