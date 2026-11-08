@@ -6,7 +6,7 @@ These are production invariants for edge-bot on Railway. They were restored afte
 2. Cron and cron triggers stay disabled. Skill Workshop autonomous mode stays `off`; OpenClaw 2026.8.2 otherwise defaults it to `auto` and can run hidden multi-turn experience reviews.
 3. Hosted file-memory search stays enabled with provider `none` and `rememberAcrossConversations = false`. This preserves keyword retrieval from durable memory without remote embedding traffic.
 4. The versioned hosted `AGENTS.md` replaces generic starter policy on each deploy. Root `MEMORY.md` stays a compact index; its pre-compaction contents remain archived on the volume.
-5. Automated app signals use deterministic handling and no LLM unless `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` is explicitly enabled.
+5. Automated app signals use deterministic handling and no LLM unless `ECHELON_PROCESS_APP_SIGNALS_WITH_LLM` is explicitly enabled. AB-54 is a separate, default-off exception for a human-requested, server-authorized Music DNA synthetic batch; its independent gates/allowlist/budgets are documented in `MUSICDNA_LEARNING_REVIEW.md`. Never enable the global flag to run that review.
 6. All model-backed Echelon jobs use synchronous `/v1/chat/completions`. Do not use `chat.send` plus `chat.history` polling: OpenClaw 2026.8 strips response-phase metadata from history and can cause progress commentary to be acknowledged as the final channel response.
 7. The queue worker preserves at most 12 recent system/user/assistant messages in a volume-backed transcript. Sessions are isolated by SMS sender, Slack thread, app signal, or Echelon actor/conversation. Never introduce unbounded transcript replay.
 8. Bootstrap context is injected on every turn with the reviewed `20000` per-file and `150000` total caps so identity and operating policy remain available. Pre-compaction memory flush stays disabled and old tool output is pruned.
@@ -17,3 +17,5 @@ These are production invariants for edge-bot on Railway. They were restored afte
 13. Workspace skills are not restricted by per-agent allowlists or prompt-count caps. Changes to skill visibility require an explicit compatibility analysis and acceptance test.
 
 Before an upgrade, record a 24-hour request/token/spend baseline, run `deploy/verify-cost-controls.sh`, test one controlled job, and inspect logs for idle turns, embeddings, repeated context, and queue churn. A container that merely starts is not a successful upgrade.
+
+AB-54 uses one direct, tool-free synchronous OpenAI `/v1/chat/completions` request with the approved existing key. Normal gateway agent execution can contain internal tools/model turns and is not a hard single-inference bound. This narrow exception does not alter the installed OpenClaw configuration or global model tiers.

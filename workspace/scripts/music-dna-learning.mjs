@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Human-invoked read-only synthetic pilot. Never imported by the signal worker.
+// Human-invoked read-only pilot plus pure validation/summary shared by AB-54.
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { open, readFile, stat } from 'node:fs/promises';
@@ -260,6 +260,20 @@ function summarize(items) {
       out.versioned_experiment_tags++;
   }
   return out;
+}
+// AB-54 receives an authoritative, single closed page instead of a stored user JWT.
+// Reuse AB-51's contract checks and numeric aggregation, never its CLI or network loop.
+export function summarizeFrozenLearningPage(page, {source,environment,observed_from,observed_until}) {
+  validatePage(page,{source,environment,observed_from,observed_until,budget:{page_size:20}});
+  requireThat(!page.has_more && page.next_cursor===null && page.items.length>0,'incomplete_evidence');
+  const receipts=new Set(),observations=new Set();let previous;
+  for(const item of page.items){
+    requireThat(!receipts.has(item.receipt_id)&&!observations.has(item.observation_id),'duplicate_receipt');
+    const order=item.observed_at.replace(/\.(\d{3})Z$/,'.$1000Z')+':'+item.receipt_id;
+    requireThat(!previous || order>previous,'receipt_order_changed');previous=order;
+    receipts.add(item.receipt_id);observations.add(item.observation_id);
+  }
+  return summarize(page.items);
 }
 export async function runLearningBatch(
   input,

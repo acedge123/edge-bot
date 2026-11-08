@@ -38,7 +38,7 @@ export function origin(value, expected, allowLocal = false) {
 }
 export async function requestJson(
   url,
-  { body, headers = {}, deadline, maxBytes = 131072, fetchImpl = fetch },
+  { body, headers = {}, deadline, maxBytes = 131072, timeoutMs = 5000, fetchImpl = fetch },
 ) {
   const remaining = deadline - Date.now();
   requireThat(remaining > 0, 'deadline_exceeded');
@@ -49,7 +49,7 @@ export async function requestJson(
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(Math.max(1, Math.min(5000, remaining))),
+      signal: AbortSignal.timeout(Math.max(1, Math.min(30000, timeoutMs, remaining))),
     });
     if (response.status !== 200) {
       await response.body?.cancel();
