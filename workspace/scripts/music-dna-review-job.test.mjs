@@ -129,6 +129,13 @@ function setup() {
         });
       }
       assert.equal(url, "https://api.openai.com/v1/chat/completions");
+      // Reproduce the live API constraint that the former mock silently accepted.
+      if (Object.hasOwn(body, "tool_choice") && !body.tools) {
+        return Response.json(
+          { error: { type: "invalid_request_error", param: "tool_choice" } },
+          { status: 400 },
+        );
+      }
       return Response.json(response, { status: s.providerStatus });
     },
   };
@@ -170,7 +177,7 @@ test("valid scoped job uses actual AB51 summary, one Brain call and one tool-fre
   assert.equal(s.modelCalls().length, 1);
   const call = s.modelCalls()[0];
   assert.equal(call.body.max_completion_tokens, 512);
-  assert.equal(call.body.tool_choice, "none");
+  assert.equal(Object.hasOwn(call.body, "tool_choice"), false);
   assert.equal(call.body.store, false);
   assert.equal(call.body.tools, undefined);
   assert.equal(call.options.redirect, "error");
