@@ -56,7 +56,14 @@ node scripts/agent-brain-router.mjs intake --file /tmp/body.json
 - **Skills** ship in the Docker image from `workspace/skills/` (see `deploy/Dockerfile`).
 - **`deploy/entrypoint.sh`** copies `workspace/skills/` from the baked image into the mounted workspace on boot so redeploys pick up new skills (see `deploy/RAILWAY_SKILLS_AND_LEARNINGS.md`).
 
-After adding or changing this skill, **rebuild and redeploy edge-bot** so the image includes the updates.
+After adding or changing this skill, verify the existing reviewed image rollout so
+the image includes the updates. Check both baked and mounted helper files; do not
+infer availability from the skill text. AB-51 recovered the old helper from the
+mounted volume and restores it to Git with bounded HTTP/auth/version/trace checks.
+See `docs/MUSICDNA_LEARNING.md` for the source/image discrepancy and release checks.
+The generic helper now requires the caller token and pinned Railway origin; CLI
+errors are sanitized and there are no automatic retries. Local HTTP tests use an
+explicit injected option, not a production authentication bypass.
 
 ## Failure modes
 
