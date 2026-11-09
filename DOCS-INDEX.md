@@ -45,6 +45,12 @@ These files should describe `edge-bot` behavior only:
 - [SMS_REPLY_IMPLEMENTATION_NOTES.md](./SMS_REPLY_IMPLEMENTATION_NOTES.md) (SMS jobs + `echelon-agent-worker.mjs`)
 - [TWILIO_SETUP_CURL_COMMANDS.md](./TWILIO_SETUP_CURL_COMMANDS.md) (tenant / connector setup curls)
 
+## Music DNA learning review
+
+- [AB-54 completed review: actual draft, usage and rollback receipt](workspace/docs/MUSICDNA_AB54_ACCEPTANCE_2026-11-08.md)
+- [Historical initial failed canary](workspace/docs/MUSICDNA_AB54_CANARY_2026-11-08.md)
+- [Historical provider diagnosis and request fix](workspace/docs/MUSICDNA_AB54_PROVIDER_RETEST_2026-11-08.md)
+
 ## Scope Rule
 
 `edge-bot` docs should focus on:

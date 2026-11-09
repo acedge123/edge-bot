@@ -1,5 +1,7 @@
 # AB-54 provider retest — November 8, 2026
 
+**Historical provider diagnostic stage.** The fix was subsequently merged/deployed and the full coordinated review completed. See [AB-54 final acceptance and actual generated draft](MUSICDNA_AB54_ACCEPTANCE_2026-11-08.md). The probe below alone was not the acceptance job.
+
 Owner requested a retest after merging PRs #20 and Music DNA #25. Verification completed before **18:21:50 UTC**. Reused EdgeBot's existing runtime `OPENAI_API_KEY`; no key was read into chat, transferred, replaced or rotated.
 
 ## Reproduced request failure

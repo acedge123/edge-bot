@@ -1,0 +1,104 @@
+{
+  "schema_version": "ab54-synthetic-retest-receipt.v1",
+  "job_id": "c9bedfea-7512-4da8-af9e-c060b7379fcf",
+  "observation_id": "f193fa04-0d9c-4e8d-9d86-5f0c26109f35",
+  "receipt_id": "ce2b23b7-c609-4204-95bf-7c967cc2c732",
+  "source": "music-dna-staging",
+  "environment": "staging",
+  "evidence_kind": "one directly ingested validated synthetic contract fixture; sender path reuses prior AB51 evidence, not rerun",
+  "state": "review_completed",
+  "result": {
+    "decision": "hold",
+    "model_id": "gpt-4o-mini-2024-07-18",
+    "next_step": "ab52_human_review",
+    "hypothesis": "It is hypothesized that there is a measurable outcome in the experimental conditions based on the synthetic numeric feedback, though the validity of the identified patterns and accuracy remains uncertain.",
+    "limitations": "The evidence provided is based solely on synthetic numeric feedback aggregates, which may not accurately reflect true experimental outcomes. Additionally, the high level of uncertainty and lack of comprehensive data on the experimental conditions and results limits the ability to draw any definitive conclusions or to ascertain real-world applicability.",
+    "brain_trace_id": "c9245da1-ba2e-4921-9d90-878fe091deef",
+    "schema_version": "musicdna-learning-model-draft.v1",
+    "provider_request_id": "chatcmpl-Ei2A6bCTODOwNfvRsmauaskHEZGHj",
+    "review_policy_version": "ab54-synthetic-canary.v1"
+  },
+  "usage": {
+    "latency_ms": 3159,
+    "total_tokens": 300,
+    "prompt_tokens": 206,
+    "completion_tokens": 94
+  },
+  "cost_micro": 88,
+  "created_at": "2026-11-08T18:44:05.726027+00:00",
+  "completed_at": "2026-11-08T18:44:12.046151+00:00",
+  "configured_ceiling_usd": 0.05,
+  "model_calls": 1,
+  "duplicate_request_same_job": true,
+  "source_commit": "76972d7a75d85620f51de9aeb0277b5e03d85204",
+  "execution_deployment": "5f2d6fb2-0141-4ce5-b763-1e460191eaed",
+  "image_digest": "sha256:732b2a5dfd54fa2a5a6621f8ab9192a3a34d6d5fbc9b2fed995984e692a0f67c",
+  "cleanup": {
+    "verified": true,
+    "echelon_flag_absent_at": "2026-11-08T18:45:44Z",
+    "review_scope_disabled": true,
+    "original_review_budget_and_expiry_restored": true,
+    "source_disabled": true,
+    "reviewer_restored_revoked_expired": true,
+    "revoked_read_status": 403,
+    "disabled_request_status": 403,
+    "test_receipt_purged": true,
+    "draft_cleared_in_database": true,
+    "review_state_after_withdrawal": "blocked",
+    "queue_state_after_withdrawal": "failed",
+    "withdrawal_state_explanation": "Intentional evidence-withdrawal trigger after the successful completion snapshot",
+    "temporary_source_key_discarded": true,
+    "logout_status": 204,
+    "session_file_removed": true,
+    "controller_stopped": true,
+    "guard_and_fixture_removed": true,
+    "original_lifecycle_expires_at": "2026-11-09T01:10:06.666Z",
+    "active_review_scopes": 0,
+    "active_reviewers": 0,
+    "active_reviews": 0,
+    "learning_enabled_sources": 0
+  },
+  "final_runtime": {
+    "verified_at": "2026-11-08T18:49:17.806Z",
+    "deployment": "9b1d276a-f8e5-4108-999f-7c053d5da435",
+    "health": 200,
+    "workers": 1,
+    "review_flag_absent": true,
+    "allowlist_absent": true,
+    "global_signal_llm": false,
+    "heartbeat": "0m",
+    "cron_enabled": false,
+    "cron_triggers_enabled": false,
+    "memory_provider": "none",
+    "autonomous_mode": "off",
+    "hashes": {
+      "music-dna-review-job.mjs": {
+        "workspace": "3d4be94737393f07c1f68d1a6ca0427f8511bb4d67446879f0fda4aef67a58a2",
+        "workspace.baked": "3d4be94737393f07c1f68d1a6ca0427f8511bb4d67446879f0fda4aef67a58a2"
+      },
+      "learning-http.mjs": {
+        "workspace": "511cb832092a7fb6bb72a6a1b88d21942563c1bd031ae7c5c24d4fa113655414",
+        "workspace.baked": "511cb832092a7fb6bb72a6a1b88d21942563c1bd031ae7c5c24d4fa113655414"
+      },
+      "echelon-agent-worker.mjs": {
+        "workspace": "03cf1e2a91d07a8417456ffd785a11a487c2a947b5fcc463b1fa6975d43d609b",
+        "workspace.baked": "03cf1e2a91d07a8417456ffd785a11a487c2a947b5fcc463b1fa6975d43d609b"
+      }
+    }
+  },
+  "artifact_kind": "preserved_completed_readback_snapshot_after_live_test_withdrawal",
+  "verified_against": "normal_authenticated_API_readback_and_independent_worker_completion_log",
+  "latest_read_only_runtime_check": {
+    "verified_at": "2026-11-09T16:25:12.187Z",
+    "deployment": "9b1d276a-f8e5-4108-999f-7c053d5da435",
+    "review_enabled": false,
+    "review_allowlist_count": 0,
+    "global_signal_llm_enabled": false,
+    "review_module_sha256": "3d4be94737393f07c1f68d1a6ca0427f8511bb4d67446879f0fda4aef67a58a2",
+    "health": 200
+  },
+  "preserved_evidence_sha256": {
+    "authenticated_completion_readback": "f8704203d88f09fbd24cd11ba7f03b06341dae6bcc2b6dafba844eeb1a2aac33",
+    "worker_job_log": "264bd0f20abb974b439ac477fe9eea324113d618d17aec14756e7a8599b9ab92"
+  }
+}
