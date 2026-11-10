@@ -78,3 +78,12 @@ allowlisted provider failure metadata (HTTP status, code/type/parameter, request
 to distinguish request/access/quota/rate/transport failures without raw error text.
 It does not authorize or perform a retry; current production behavior is unchanged
 until a separately authorized deployment.
+
+
+## AB-57 real QA
+
+The owner authorized moving testing to real Music DNA feedback on November 9, 2026. The server-authorized review adapter also accepts the narrowly allowlisted `music-dna` / `production` path with `learning-observation.v2`, `real-qa.v1` and `consented_qa`. Production QA rejects synthetic or mixed receipts. The existing manual staging CLI remains synthetic-only.
+
+Only numeric feedback aggregates and an explicit evidence-class label reach the model/Agent Brain. Multiple feedback events may belong to one tester. They do not prove independent listener benefit or causal improvement. Existing per-job/daily limits, fresh pricing, source/reviewer/worker bindings, circuit breaker, one-call/no-tools/no-inference-retry behavior and human draft approval remain unchanged. No global app-signal LLM flag, cron, heartbeat, autonomous work or memory writes are enabled by this patch.
+
+Deploy this adapter before setting the existing review flag and allowlisting the new approved production source. Default to manual requests pending an owner-approved recurring schedule and daily cap. No new live synthetic demonstration is required.
