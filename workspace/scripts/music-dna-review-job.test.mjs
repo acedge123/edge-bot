@@ -381,3 +381,19 @@ for (const [status, code, type, param, expected] of [
       assert.doesNotMatch(JSON.stringify(r), /Bearer|secret|raw evidence/);
     },
   );
+
+test("server-authorized production QA validates real metadata and makes one bounded draft call", async () => {
+  const s = setup();
+  s.packet.source = "music-dna"; s.packet.environment = "production"; s.packet.config.environment = "production";
+  s.packet.batch.source = "music-dna"; s.packet.batch.environment = "production";
+  for (const item of s.packet.batch.items) { item.source="music-dna"; item.environment="production"; item.schema_version="learning-observation.v2"; item.privacy_policy_version="real-qa.v1"; item.provenance.data_class="consented_qa"; }
+  const result=await processLearningReviewJob(s.job,s.deps);
+  assert.equal(result.state,"review_completed"); assert.equal(s.modelCalls().length,1);
+  assert.match(JSON.stringify(s.calls),/consented_qa/);
+});
+test("production QA rejects a synthetic or mixed receipt batch before model calls", async () => {
+  const s=setup(); s.packet.source="music-dna";s.packet.environment="production";s.packet.config.environment="production";
+  s.packet.batch.source="music-dna";s.packet.batch.environment="production";
+  const result=await processLearningReviewJob(s.job,s.deps);
+  assert.notEqual(result.state,"review_completed");assert.equal(s.modelCalls().length,0);
+});

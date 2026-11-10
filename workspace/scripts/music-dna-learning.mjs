@@ -130,8 +130,7 @@ function validateItem(i, a) {
       uuid(i.observation_id) &&
       i.source === a.source &&
       i.environment === a.environment &&
-      i.schema_version === 'learning-observation.v1' &&
-      i.privacy_policy_version === 'synthetic-pilot.v1' &&
+      ((a.source === 'music-dna-staging' && a.environment === 'staging' && i.schema_version === 'learning-observation.v1' && i.privacy_policy_version === 'synthetic-pilot.v1') || (a.source === 'music-dna' && a.environment === 'production' && i.schema_version === 'learning-observation.v2' && i.privacy_policy_version === 'real-qa.v1')) &&
       i.status === 'received' &&
       i.outcome_state === 'unknown' &&
       typeof i.late_for_window === 'boolean',
@@ -181,7 +180,7 @@ function validateItem(i, a) {
   requireThat(
     ['pairings', 'chat_self_report'].includes(i.provenance.result_source) &&
       i.provenance.answered_count === 6 &&
-      i.provenance.data_class === 'synthetic' &&
+      i.provenance.data_class === (a.source === 'music-dna' ? 'consented_qa' : 'synthetic') &&
       i.provenance.purpose === 'musicdna_diagnostic_quality',
     'unapproved_data_class',
   );
